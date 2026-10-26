@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PrecioListo</title>
+<meta name="description" content="Foto de la factura del distribuidor → precios de venta con tu ganancia, en PDF y Excel.">
+<meta name="theme-color" content="#3A3FA6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PrecioListo">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="lib/jspdf.umd.min.js" defer></script>
+<script src="lib/jspdf.plugin.autotable.min.js" defer></script>
+<script src="lib/xlsx.full.min.js" defer></script>
+<style>
+/* Layout: una columna móvil — captura → productos como tarjetas editables → barra fija de descarga. Tinta azul de papel carbón + amarillo resaltador en el precio de venta. */
+:root{
+  --bg:#F3F4F8; --surface:#FFFFFF; --ink:#1B1D33; --muted:#5E6280; --line:#DADCE8;
+  --carbon:#3A3FA6; --carbon-soft:#E6E7F7; --marker:#FFE45C; --marker-ink:#2A2400;
+  --ok:#1F7A4D; --warn:#B4531A; --danger:#B42339;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Instrument Sans",system-ui,-apple-system,sans-serif;
+  --f-num:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:10px; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#12131F; --surface:#1B1D2E; --ink:#ECEDF7; --muted:#9FA3C2; --line:#2E3150;
+  --carbon:#8E93F2; --carbon-soft:#262A4D; --marker:#F2D43A; --marker-ink:#1E1A00;
+  --ok:#5CC995; --warn:#F0A060; --danger:#F07085; color-scheme:dark }}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+[hidden]{display:none!important}
+img{max-width:100%}
+a{color:var(--carbon)}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding-top:6px;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0;line-height:1}
+h1 span{color:var(--carbon)}
+.tag{font-size:13px;color:var(--muted);margin:4px 0 0}
+h2{font-family:var(--f-display);font-weight:600;font-size:18px;margin:0;text-wrap:balance}
+.label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+button,.btn{font:600 15px var(--f-body);border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  padding:11px 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;text-decoration:none}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.btn:focus-visible{outline:2px solid var(--carbon);outline-offset:2px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.primary{background:var(--carbon);color:var(--surface);border-color:var(--carbon)}
+.ghost{background:transparent}
+.small-btn{min-height:36px;padding:6px 12px;font-size:14px}
+.icon{width:44px;padding:0}
+input,select,textarea{font:500 16px var(--f-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%;min-width:0;min-height:42px}
+textarea{font:500 13px var(--f-num);min-height:70px;resize:vertical}
+input.num{font-family:var(--f-num);text-align:right}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.setup{border:1.5px solid var(--carbon)}
+.setup ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.capture{border:1.5px dashed var(--carbon)}
+.capture-row{display:flex;gap:10px;flex-wrap:wrap}
+.capture-row > *{flex:1 1 150px}
+.thumbs{display:flex;gap:8px;overflow-x:auto}
+.thumb{position:relative;flex:0 0 76px;height:96px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:3px;right:3px;min-height:0;width:24px;height:24px;padding:0;border-radius:50%;font-size:14px;background:var(--ink);color:var(--surface);border:0}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.status{font-size:14px;padding:10px 12px;border-radius:8px;background:var(--carbon-soft);color:var(--ink)}
+.status.err{background:transparent;border:1px solid var(--danger);color:var(--danger)}
+.spin{width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s .8s linear infinite;flex:none}
+@keyframes s{to{transform:rotate(1turn)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+.inv{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
+.inv > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+@media (max-width:520px){.inv{grid-template-columns:1fr 1fr}.inv > div:first-child{grid-column:1/-1}}
+.example{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;background:var(--marker);color:var(--marker-ink);padding:2px 7px;border-radius:4px}
+
+.items{display:flex;flex-direction:column;gap:10px}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px;grid-template-columns:1fr 1fr}
+.item .full{grid-column:1/-1}
+.item .top{display:flex;gap:8px;align-items:center}
+.item .top input{font-weight:600}
+.f{display:flex;flex-direction:column;gap:3px;min-width:0}
+.f label,.f .lbl{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.nums{grid-column:1/-1;display:grid;grid-template-columns:.7fr 1.2fr .8fr;gap:8px}
+.result{grid-column:1/-1;display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-top:1px dashed var(--line);padding-top:8px;flex-wrap:wrap}
+.result .small{font-size:12px;color:var(--muted);font-family:var(--f-num)}
+.price{font-family:var(--f-num);font-weight:700;font-size:20px;background:linear-gradient(transparent 55%,var(--marker) 55%);color:var(--ink);padding:0 3px;font-variant-numeric:tabular-nums}
+.override{color:var(--warn)}
+.add{border-style:dashed;background:transparent;color:var(--carbon)}
+
+.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.totals div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}
+.totals strong{display:block;font-family:var(--f-num);font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+@media (max-width:420px){.totals strong{font-size:14px}}
+
+details.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+details.panel > summary{list-style:none;cursor:pointer;padding:14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+details.panel > summary::-webkit-details-marker{display:none}
+details.panel > summary::after{content:"+";font:600 20px var(--f-num);color:var(--carbon)}
+details.panel[open] > summary::after{content:"–"}
+.panel-body{padding:0 14px 14px;display:flex;flex-direction:column;gap:16px}
+.cats{display:flex;flex-direction:column;gap:6px}
+.cat{display:grid;grid-template-columns:1fr 92px 44px;gap:6px;align-items:center}
+.pct{position:relative}
+.pct input{padding-right:24px}
+.pct::after{content:"%";position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-family:var(--f-num);font-size:13px;pointer-events:none}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;border-radius:0;min-height:40px;font-size:14px;background:transparent}
+.seg button[aria-pressed="true"]{background:var(--carbon);color:var(--surface)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:420px){.row2{grid-template-columns:1fr}}
+.inline{display:flex;gap:8px}
+.inline > input,.inline > select{flex:1}
+.check{display:flex;gap:10px;align-items:center;font-size:14px}
+.check input{width:22px;height:22px;min-height:0;flex:none}
+.saved{font-size:12px;color:var(--ok)}
+hr{border:0;border-top:1px solid var(--line);margin:0}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.bar .in{max-width:720px;margin:0 auto;display:flex;gap:8px}
+.bar button{flex:1}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px;z-index:6;max-width:calc(100% - 32px)}
+.sheet{position:fixed;inset:0;z-index:7;background:rgba(10,12,30,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet .card{width:100%;max-width:720px;border-radius:16px 16px 0 0;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Precio<span>Listo</span></h1>
+      <p class="tag">Foto de la factura → precios de venta con tu ganancia</p>
+    </div>
+    <button id="installBtn" class="small-btn" hidden>Instalar app</button>
+  </header>
+
+  <!-- Configuración inicial: sale solo si no hay clave -->
+  <section class="card setup" id="setupCard" hidden aria-labelledby="setT">
+    <h2 id="setT">Configura la lectura de facturas (una sola vez)</h2>
+    <ol>
+      <li>Abre <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e inicia sesión con tu cuenta de Google.</li>
+      <li>Toca <strong>Crear clave de API</strong> (Create API key) y cópiala.</li>
+      <li>Pégala aquí y toca <strong>Guardar</strong>.</li>
+    </ol>
+    <div class="inline">
+      <input id="keySetup" type="password" autocomplete="off" placeholder="Pega tu clave de Gemini" aria-label="Clave de Gemini">
+      <button id="keySetupBtn" class="primary">Guardar</button>
+    </div>
+    <p class="hint">La clave se guarda solo en este celular. Es gratis y no necesitas tarjeta.</p>
+  </section>
+
+  <section class="card capture" aria-labelledby="capT">
+    <h2 id="capT">1. Foto de la factura</h2>
+    <div class="capture-row">
+      <label class="btn primary" for="cam">Tomar foto</label>
+      <label class="btn" for="gal">Elegir de galería</label>
+    </div>
+    <input id="cam" type="file" accept="image/*" capture="environment" hidden>
+    <input id="gal" type="file" accept="image/*" multiple hidden>
+    <div class="thumbs" id="thumbs" hidden></div>
+    <p class="hint">Si la factura es larga o la letra es pequeña, toma una foto por página o por mitad. Buena luz y la hoja bien plana.</p>
+    <button id="readBtn" class="primary" disabled>Leer factura</button>
+    <div id="status" class="status" hidden></div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px" aria-labelledby="itT">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <h2 id="itT">2. Revisa los productos</h2>
+      <span class="example" id="exTag">Ejemplo</span>
+    </div>
+    <div class="inv">
+      <div><label class="label" for="prov">Proveedor</label><input id="prov"></div>
+      <div><label class="label" for="nfac">N.º factura</label><input id="nfac"></div>
+      <div><label class="label" for="ffac">Fecha</label><input id="ffac"></div>
+    </div>
+    <div class="items" id="items"></div>
+    <button class="add" id="addItem">+ Agregar producto a mano</button>
+    <div class="totals">
+      <div><span class="label">Costo total</span><strong id="tCost">$0</strong></div>
+      <div><span class="label">Venta total</span><strong id="tSale">$0</strong></div>
+      <div><span class="label">Ganancia</span><strong id="tGain">$0</strong></div>
+    </div>
+  </section>
+
+  <details class="panel" id="settingsPanel">
+    <summary><h2>Ganancia por categoría y ajustes</h2></summary>
+    <div class="panel-body">
+      <div class="f"><label for="negocio">Nombre de tu negocio (sale en el PDF)</label><input id="negocio" placeholder="Ej. Tienda La Esquina"></div>
+      <div>
+        <span class="label">Categorías y % de ganancia</span>
+        <div class="cats" id="cats" style="margin-top:6px"></div>
+        <button class="ghost" id="addCat" style="margin-top:6px;width:100%">+ Nueva categoría</button>
+      </div>
+      <div class="f"><span class="lbl">Cómo se calcula la ganancia</span>
+        <div class="seg" role="group" aria-label="Modo de ganancia">
+          <button id="modeCosto" type="button">Sobre el costo</button>
+          <button id="modeVenta" type="button">Sobre la venta</button>
+        </div>
+        <p class="hint" id="modeHint"></p>
+      </div>
+      <div class="row2">
+        <div class="f"><label for="redondeo">Redondear precio hacia arriba a</label>
+          <select id="redondeo"><option value="1">Sin redondeo</option><option value="50">$50</option><option value="100">$100</option><option value="500">$500</option><option value="1000">$1.000</option></select></div>
+        <div class="f"><span class="lbl">IVA</span>
+          <label class="check" for="ivaChk"><input type="checkbox" id="ivaChk"> Sumar el IVA de la factura al costo</label></div>
+      </div>
+      <span class="saved" id="savedNote" hidden>Ajustes guardados en este celular</span>
+
+      <hr>
+      <div class="f">
+        <label for="keyInput">Clave de Gemini</label>
+        <div class="inline">
+          <input id="keyInput" type="password" autocomplete="off" placeholder="Pega tu clave">
+          <button id="keyTest" class="small-btn">Probar</button>
+        </div>
+        <p class="hint" id="keyHint">Consíguela gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+      </div>
+      <div class="f">
+        <label for="modelSel">Modelo de IA</label>
+        <select id="modelSel"><option value="auto">Automático (recomendado)</option></select>
+        <p class="hint">En automático usa el modelo Flash más nuevo del plan gratis y, si se agota el límite, prueba con otro.</p>
+      </div>
+
+      <hr>
+      <div class="f">
+        <span class="lbl">Pasar ajustes al otro celular</span>
+        <p class="hint">Copia este código y pégalo en PrecioListo del otro celular (por ejemplo, enviándotelo por WhatsApp). Pasa categorías, porcentajes y la clave.</p>
+        <div class="inline"><button id="exportCfg" class="small-btn">Copiar código</button><button id="importOpen" class="small-btn ghost">Pegar código</button></div>
+        <div id="importBox" class="f" hidden>
+          <textarea id="importTxt" aria-label="Código de ajustes" placeholder="Pega aquí el código"></textarea>
+          <button id="importBtn" class="small-btn primary">Aplicar ajustes</button>
+        </div>
+      </div>
+    </div>
+  </details>
+</div>
+
+<div class="bar"><div class="in">
+  <button id="pdfBtn" class="primary">PDF</button>
+  <button id="xlsBtn">Excel</button>
+</div></div>
+<div class="toast" id="toast" hidden></div>
+
+<!-- Hoja para compartir/descargar el archivo generado -->
+<div class="sheet" id="sheet" hidden>
+  <div class="card" role="dialog" aria-labelledby="shT">
+    <h2 id="shT">Archivo listo</h2>
+    <p class="hint" id="shName"></p>
+    <div class="capture-row">
+      <button id="shShare" class="primary">Compartir (WhatsApp, correo…)</button>
+      <button id="shSave">Guardar en el celular</button>
+    </div>
+    <button id="shClose" class="ghost">Cerrar</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const store = {
+  get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } }
+};
+const DEFAULT_SETTINGS = {
+  negocio:"", modo:"costo", redondeo:100, incluirIva:true, modelo:"auto",
+  categorias:[
+    {nombre:"Abarrotes",margen:20},{nombre:"Bebidas",margen:25},{nombre:"Lácteos y refrigerados",margen:18},
+    {nombre:"Aseo y hogar",margen:30},{nombre:"Snacks y dulces",margen:35},{nombre:"Licores",margen:28},{nombre:"Otros",margen:25}
+  ]
+};
+let settings = {...structuredClone(DEFAULT_SETTINGS), ...(store.get("pl_settings") || {})};
+let apiKey = store.get("pl_key") || "";
+let photos = [], uid = 1, isExample = true;
+let inv = {proveedor:"Distribuidora El Surtidor S.A.S.", numero:"FE-20481", fecha:"2026-10-24"};
+let items = [
+  {producto:"Arroz blanco x 500 g", marca:"Diana", cantidad:24, costo:2350, iva:0, categoria:"Abarrotes"},
+  {producto:"Aceite de girasol x 1 L", marca:"Premier", cantidad:12, costo:9800, iva:19, categoria:"Abarrotes"},
+  {producto:"Gaseosa 1,5 L", marca:"Postobón", cantidad:18, costo:3100, iva:19, categoria:"Bebidas"},
+  {producto:"Leche entera bolsa 1,1 L", marca:"Alquería", cantidad:20, costo:3650, iva:0, categoria:"Lácteos y refrigerados"},
+  {producto:"Detergente en polvo x 1 kg", marca:"Fab", cantidad:6, costo:11200, iva:19, categoria:"Aseo y hogar"},
+].map(x => ({...x, id:uid++, margen:null}));
+
+const cop = n => "$" + Math.round(n).toLocaleString("es-CO");
+const num = v => {
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  const n = parseFloat(String(v).replace(/[^\d.,-]/g,"").replace(/\.(?=\d{3}(\D|$))/g,"").replace(",", "."));
+  return isFinite(n) ? n : 0;
+};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const catMargin = name => (settings.categorias.find(c => c.nombre === name) || settings.categorias[settings.categorias.length-1] || {margen:0}).margen;
+function calc(it){
+  const base = it.costo * (1 + (settings.incluirIva ? (it.iva||0)/100 : 0));
+  const m = it.margen ?? catMargin(it.categoria);
+  let p = settings.modo === "venta" ? base / (1 - Math.min(m,95)/100) : base * (1 + m/100);
+  const step = Number(settings.redondeo) || 1;
+  p = Math.ceil(p/step - 1e-9) * step;
+  return {base, m, precio:p};
+}
+
+/* ---------- productos ---------- */
+function catOptions(sel){
+  const names = settings.categorias.map(c => c.nombre);
+  if (sel && !names.includes(sel)) names.push(sel);
+  return names.map(n => `<option ${n===sel?"selected":""}>${esc(n)}</option>`).join("");
+}
+function renderItems(){
+  $("#items").innerHTML = items.map(it => {
+    const c = calc(it);
+    return `<article class="item" data-id="${it.id}">
+      <div class="top full"><input id="p${it.id}" data-k="producto" value="${esc(it.producto)}" aria-label="Producto" placeholder="Producto">
+        <button class="icon ghost" data-del="${it.id}" aria-label="Quitar producto">✕</button></div>
+      <div class="f"><label for="m${it.id}">Marca</label><input id="m${it.id}" data-k="marca" value="${esc(it.marca)}" placeholder="—"></div>
+      <div class="f"><label for="c${it.id}">Categoría</label><select id="c${it.id}" data-k="categoria">${catOptions(it.categoria)}</select></div>
+      <div class="nums">
+        <div class="f"><label for="q${it.id}">Cant.</label><input class="num" inputmode="decimal" id="q${it.id}" data-k="cantidad" value="${it.cantidad}"></div>
+        <div class="f"><label for="k${it.id}">Costo unit.</label><input class="num" inputmode="decimal" id="k${it.id}" data-k="costo" value="${it.costo}"></div>
+        <div class="f"><label for="g${it.id}">Ganancia</label><div class="pct"><input class="num ${it.margen!=null?"override":""}" inputmode="decimal" id="g${it.id}" data-k="margen" value="${c.m}"></div></div>
+      </div>
+      <div class="result"><span class="small">${it.iva ? `IVA ${it.iva}% · ` : ""}costo ${cop(c.base)}</span><span>Venta <span class="price">${cop(c.precio)}</span></span></div>
+    </article>`;
+  }).join("") || `<p class="hint">Todavía no hay productos. Toma la foto de una factura o agrégalos a mano.</p>`;
+  renderTotals();
+  $("#exTag").hidden = !isExample;
+}
+function renderTotals(){
+  let tc=0, ts=0;
+  items.forEach(it => { const c = calc(it); tc += c.base*it.cantidad; ts += c.precio*it.cantidad; });
+  $("#tCost").textContent = cop(tc); $("#tSale").textContent = cop(ts); $("#tGain").textContent = cop(ts-tc);
+}
+function refreshRow(id){
+  const it = items.find(x => x.id === id), el = document.querySelector(`.item[data-id="${id}"]`);
+  if (!it || !el) return;
+  const c = calc(it);
+  el.querySelector(".price").textContent = cop(c.precio);
+  el.querySelector(".small").textContent = (it.iva ? `IVA ${it.iva}% · ` : "") + "costo " + cop(c.base);
+  const g = el.querySelector('[data-k="margen"]');
+  if (document.activeElement !== g) g.value = c.m;
+  g.classList.toggle("override", it.margen != null);
+  renderTotals();
+}
+$("#items").addEventListener("input", e => {
+  const k = e.target.dataset.k; if (!k || k === "categoria") return;
+  const id = Number(e.target.closest(".item").dataset.id), it = items.find(x => x.id === id);
+  if (k === "producto" || k === "marca") it[k] = e.target.value;
+  else if (k === "margen") it.margen = e.target.value.trim() === "" ? null : num(e.target.value);
+  else it[k] = num(e.target.value);
+  refreshRow(id);
+});
+$("#items").addEventListener("change", e => {
+  if (e.target.dataset.k !== "categoria") return;
+  const id = Number(e.target.closest(".item").dataset.id), it = items.find(x => x.id === id);
+  it.categoria = e.target.value; it.margen = null; refreshRow(id);
+});
+$("#items").addEventListener("click", e => {
+  const d = e.target.closest("[data-del]"); if (!d) return;
+  items = items.filter(x => x.id !== Number(d.dataset.del)); renderItems();
+});
+$("#addItem").onclick = () => {
+  items.push({id:uid++, producto:"", marca:"", cantidad:1, costo:0, iva:0, categoria:settings.categorias[0]?.nombre || "Otros", margen:null});
+  renderItems(); $(`#p${uid-1}`).focus();
+};
+[["prov","proveedor"],["nfac","numero"],["ffac","fecha"]].forEach(([id,k]) => $("#"+id).addEventListener("input", e => { inv[k] = e.target.value; }));
+function renderInv(){ $("#prov").value = inv.proveedor||""; $("#nfac").value = inv.numero||""; $("#ffac").value = inv.fecha||""; }
+
+/* ---------- ajustes ---------- */
+function renderSettings(){
+  $("#negocio").value = settings.negocio || "";
+  $("#cats").innerHTML = settings.categorias.map((c,i) => `<div class="cat">
+      <input id="cn${i}" data-ci="${i}" data-ck="nombre" value="${esc(c.nombre)}" aria-label="Nombre de categoría">
+      <div class="pct"><input id="cm${i}" class="num" inputmode="decimal" data-ci="${i}" data-ck="margen" value="${c.margen}" aria-label="Ganancia de ${esc(c.nombre)}"></div>
+      <button class="icon ghost" data-cdel="${i}" aria-label="Quitar ${esc(c.nombre)}">✕</button></div>`).join("");
+  $("#modeCosto").setAttribute("aria-pressed", settings.modo === "costo");
+  $("#modeVenta").setAttribute("aria-pressed", settings.modo === "venta");
+  $("#modeHint").textContent = settings.modo === "costo"
+    ? "Costo $10.000 con 25% → vendes a $12.500."
+    : "Costo $10.000 con 25% → vendes a unos $13.333 (la ganancia es el 25% del precio de venta).";
+  $("#redondeo").value = String(settings.redondeo);
+  $("#ivaChk").checked = !!settings.incluirIva;
+  $("#keyInput").value = apiKey;
+  $("#setupCard").hidden = !!apiKey;
+  updateReadBtn();
+}
+let saveTimer;
+function saveSettings(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (store.set("pl_settings", settings)) {
+      const n = $("#savedNote"); n.hidden = false; clearTimeout(n._t); n._t = setTimeout(() => n.hidden = true, 1600);
+    }
+  }, 500);
+}
+$("#cats").addEventListener("input", e => {
+  const i = e.target.dataset.ci; if (i == null) return;
+  const c = settings.categorias[i], old = c.nombre;
+  if (e.target.dataset.ck === "nombre"){ c.nombre = e.target.value; items.forEach(it => { if (it.categoria === old) it.categoria = c.nombre; }); }
+  else c.margen = num(e.target.value);
+  renderItems(); saveSettings();
+});
+$("#cats").addEventListener("click", e => {
+  const d = e.target.closest("[data-cdel]"); if (!d) return;
+  settings.categorias.splice(Number(d.dataset.cdel), 1); renderSettings(); renderItems(); saveSettings();
+});
+$("#addCat").onclick = () => { settings.categorias.push({nombre:"Nueva categoría", margen:25}); renderSettings(); renderItems(); $(`#cn${settings.categorias.length-1}`).select(); saveSettings(); };
+$("#negocio").oninput = e => { settings.negocio = e.target.value; saveSettings(); };
+$("#modeCosto").onclick = () => { settings.modo = "costo"; renderSettings(); renderItems(); saveSettings(); };
+$("#modeVenta").onclick = () => { settings.modo = "venta"; renderSettings(); renderItems(); saveSettings(); };
+$("#redondeo").onchange = e => { settings.redondeo = Number(e.target.value); renderItems(); saveSettings(); };
+$("#ivaChk").onchange = e => { settings.incluirIva = e.target.checked; renderItems(); saveSettings(); };
+$("#modelSel").onchange = e => { settings.modelo = e.target.value; saveSettings(); };
+
+/* ---------- clave y modelos de Gemini ---------- */
+const API = "https://generativelanguage.googleapis.com/v1beta";
+let modelCache = store.get("pl_models") || null; // {key4, list:[...], at}
+function setKey(k){
+  apiKey = k.trim(); store.set("pl_key", apiKey); modelCache = null; store.set("pl_models", null);
+  renderSettings();
+}
+function rankModels(names){
+  // Prioriza "gemini-X-flash" estable más nuevo; luego preview; luego flash-lite.
+  const score = n => {
+    const v = parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+    const lite = /lite/.test(n) ? 1 : 0, prev = /preview|exp/.test(n) ? 1 : 0;
+    return (2 - lite) * 1000 + (1 - prev) * 100 + v;
+  };
+  return names
+    .filter(n => /^gemini-[\d.]+-flash/.test(n) && !/(image|tts|audio|live|native|thinking|embedding|robotics|computer|8b)/.test(n))
+    .sort((a,b) => score(b) - score(a));
+}
+async function listModels(){
+  const r = await fetch(`${API}/models?pageSize=1000`, {headers:{"x-goog-api-key":apiKey}});
+  if (!r.ok) throw await apiError(r);
+  const j = await r.json();
+  const names = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent")).map(m => m.name.replace(/^models\//,""));
+  const list = rankModels(names);
+  modelCache = {key4: apiKey.slice(-4), list, at: Date.now()}; store.set("pl_models", modelCache);
+  return list;
+}
+async function getModels(){
+  if (modelCache && modelCache.key4 === apiKey.slice(-4) && Date.now() - modelCache.at < 7*864e5 && modelCache.list.length) return modelCache.list;
+  return listModels();
+}
+function fillModelSelect(list){
+  const sel = $("#modelSel");
+  sel.innerHTML = `<option value="auto">Automático (recomendado)</option>` + list.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = list.includes(settings.modelo) ? settings.modelo : "auto";
+}
+async function apiError(r){
+  let msg = ""; try { const j = await r.json(); msg = j?.error?.message || ""; } catch(e){}
+  const e = new Error(msg); e.status = r.status;
+  e.code = r.status === 429 ? "quota" : (r.status === 400 && /api key/i.test(msg)) || r.status === 401 || r.status === 403 ? "key" : r.status === 404 ? "model" : "api";
+  return e;
+}
+$("#keyTest").onclick = async () => {
+  const k = $("#keyInput").value.trim();
+  if (!k) return toast("Pega primero tu clave");
+  if (k !== apiKey) setKey(k);
+  $("#keyHint").textContent = "Probando la clave…";
+  try {
+    const list = await listModels(); fillModelSelect(list);
+    $("#keyHint").textContent = list.length ? `Clave correcta. Modelo que se usará: ${settings.modelo === "auto" ? list[0] : settings.modelo}.` : "La clave funciona, pero no encontré modelos Flash disponibles.";
+  } catch(e){ $("#keyHint").textContent = errText(e); }
+};
+$("#keyInput").onchange = e => setKey(e.target.value);
+$("#keySetupBtn").onclick = async () => {
+  const k = $("#keySetup").value.trim(); if (!k) return toast("Pega tu clave primero");
+  setKey(k); toast("Clave guardada");
+  try { fillModelSelect(await listModels()); } catch(e){ toast(errText(e)); }
+};
+
+/* ---------- fotos ---------- */
+const MAX_PHOTOS = 6;
+function addPhotos(list){
+  for (const f of list){ if (photos.length >= MAX_PHOTOS){ toast(`Máximo ${MAX_PHOTOS} fotos por factura`); break; } photos.push(f); }
+  renderThumbs();
+}
+function renderThumbs(){
+  const t = $("#thumbs");
+  t.querySelectorAll("img").forEach(i => URL.revokeObjectURL(i.src));
+  t.hidden = photos.length === 0;
+  t.innerHTML = photos.map((f,i) => `<div class="thumb"><img alt="Foto ${i+1}" src="${URL.createObjectURL(f)}"><button data-pdel="${i}" aria-label="Quitar foto ${i+1}">✕</button></div>`).join("");
+  updateReadBtn();
+}
+function updateReadBtn(){
+  const b = $("#readBtn");
+  b.disabled = photos.length === 0 || !apiKey || reading;
+  b.textContent = !apiKey ? "Primero configura tu clave" : photos.length > 1 ? `Leer factura (${photos.length} fotos)` : "Leer factura";
+}
+$("#thumbs").addEventListener("click", e => { const d = e.target.closest("[data-pdel]"); if (d){ photos.splice(Number(d.dataset.pdel),1); renderThumbs(); } });
+$("#cam").onchange = e => { addPhotos(e.target.files); e.target.value = ""; };
+$("#gal").onchange = e => { addPhotos(e.target.files); e.target.value = ""; };
+
+// Reduce la foto a ~2000 px y JPEG para enviarla rápido sin perder la letra.
+async function toJpegBase64(file, maxSide = 2000){
+  const bmp = await createImageBitmap(file, {imageOrientation:"from-image"}).catch(() => null);
+  let w, h, src;
+  if (bmp){ src = bmp; w = bmp.width; h = bmp.height; }
+  else {
+    src = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = URL.createObjectURL(file); });
+    w = src.naturalWidth; h = src.naturalHeight;
+  }
+  const k = Math.min(1, maxSide / Math.max(w, h));
+  const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  const url = c.toDataURL("image/jpeg", 0.85);
+  return url.slice(url.indexOf(",") + 1);
+}
+
+/* ---------- lectura con Gemini ---------- */
+let reading = false;
+function setStatus(html, err){ const s = $("#status"); s.hidden = !html; s.className = "status" + (err ? " err" : ""); s.innerHTML = html || ""; }
+function errText(e){
+  if (e?.code === "key") return "La clave de Gemini no es válida o no tiene permiso. Revísala en Ajustes.";
+  if (e?.code === "quota") return "Llegaste al límite gratis de Gemini por ahora. Espera un minuto (o hasta mañana si es el límite diario) y vuelve a intentar.";
+  if (e?.code === "net") return "No hay conexión a internet. La lectura de facturas necesita internet.";
+  if (e?.code === "empty") return "No encontré productos en la foto. Prueba con más luz o una foto más cercana.";
+  if (e?.code === "parse") return "La lectura salió incompleta. Toca \"Leer factura\" otra vez o usa fotos más cercanas.";
+  if (e?.code === "blocked") return "Gemini no quiso procesar esta imagen. Verifica que sea una factura.";
+  return "Hubo un problema con Gemini" + (e?.message ? `: ${e.message}` : ".") ;
+}
+function buildPrompt(n){
+  const cats = settings.categorias.map(c => c.nombre);
+  return `Las imágenes son ${n > 1 ? "partes o páginas de UNA misma" : "una"} factura de compra de un distribuidor a una tienda en Colombia.
+Extrae TODOS los productos que aparecen. Responde SOLO con un objeto JSON con esta forma exacta:
+{"proveedor": string|null, "numero": string|null, "fecha": "AAAA-MM-DD"|null,
+ "items": [{"producto": string, "marca": string|null, "cantidad": number, "costo_unitario": number, "iva_pct": number, "categoria": string}]}
+Reglas:
+- "producto": nombre claro con presentación/tamaño (ej. "Arroz blanco x 500 g"). Corrige abreviaturas obvias.
+- "marca": la marca si aparece o es evidente por el nombre; si no, null.
+- "cantidad": unidades compradas. Si viene por caja/paca y se indica cuántas unidades trae, usa unidades sueltas y ajusta el costo por unidad.
+- "costo_unitario": precio por unidad en pesos colombianos SIN IVA, ya aplicado cualquier descuento de la línea. Si solo hay total de línea, divide entre la cantidad. Número sin separadores de miles (ej. 12500, no "12.500").
+- "iva_pct": el % de IVA de esa línea (0, 5 o 19 normalmente). Si no se indica, 0.
+- "categoria": elige exactamente una de: ${JSON.stringify(cats)}.
+- No inventes productos. Si las fotos se repiten o se solapan, no dupliques líneas. Ignora subtotales, totales, retenciones y fletes.`;
+}
+function parseJson(text){
+  try { return JSON.parse(text); } catch(e){}
+  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { return JSON.parse(m[1]); } catch(e){} }
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a >= 0 && b > a) { try { return JSON.parse(text.slice(a, b+1)); } catch(e){} }
+  const err = new Error("parse"); err.code = "parse"; throw err;
+}
+async function callGemini(model, parts){
+  let r;
+  try {
+    r = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":apiKey},
+      body: JSON.stringify({contents:[{role:"user", parts}], generationConfig:{responseMimeType:"application/json", temperature:0}})
+    });
+  } catch(e){ const err = new Error("net"); err.code = "net"; throw err; }
+  if (!r.ok) throw await apiError(r);
+  const j = await r.json();
+  const cand = j.candidates?.[0];
+  if (!cand) { const e = new Error(j.promptFeedback?.blockReason || ""); e.code = "blocked"; throw e; }
+  const text = (cand.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("");
+  if (!text.trim()) { const e = new Error(cand.finishReason || ""); e.code = cand.finishReason === "SAFETY" ? "blocked" : "parse"; throw e; }
+  return parseJson(text);
+}
+$("#readBtn").onclick = async () => {
+  if (!apiKey || !photos.length || reading) return;
+  reading = true; updateReadBtn();
+  const say = t => setStatus(`<span style="display:inline-flex;gap:8px;align-items:center"><span class="spin"></span> ${t}</span>`);
+  try {
+    say("Preparando las fotos…");
+    const imgs = await Promise.all(photos.map(f => toJpegBase64(f)));
+    const parts = [...imgs.map(d => ({inline_data:{mime_type:"image/jpeg", data:d}})), {text: buildPrompt(imgs.length)}];
+    say("Buscando el modelo de Gemini…");
+    let models;
+    try { models = await getModels(); } catch(e){ if (e.code) throw e; const err = new Error("net"); err.code = "net"; throw err; }
+    fillModelSelect(models);
+    const order = settings.modelo !== "auto" ? [settings.modelo, ...models.filter(m => m !== settings.modelo)] : models;
+    if (!order.length) { const e = new Error("Tu clave no tiene modelos Flash disponibles."); e.code = "api"; throw e; }
+    let data = null, lastErr = null;
+    for (const m of order.slice(0, 3)){
+      say(`Leyendo la factura con ${m}… puede tardar hasta un minuto.`);
+      try { data = await callGemini(m, parts); break; }
+      catch(e){ lastErr = e; if (!["quota","model"].includes(e.code)) throw e; }
+    }
+    if (!data) throw lastErr;
+    const cats = settings.categorias.map(c => c.nombre);
+    const list = Array.isArray(data?.items) ? data.items : [];
+    if (!list.length) { const e = new Error(""); e.code = "empty"; throw e; }
+    inv = {proveedor: data.proveedor || "", numero: data.numero || "", fecha: data.fecha || ""};
+    items = list.map(x => ({
+      id: uid++, producto: String(x.producto || ""), marca: x.marca ? String(x.marca) : "",
+      cantidad: num(x.cantidad) || 1, costo: Math.round(num(x.costo_unitario) * 100) / 100, iva: num(x.iva_pct),
+      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null
+    }));
+    isExample = false;
+    renderInv(); renderItems();
+    setStatus(`Listo: ${items.length} productos leídos. Revisa nombres y costos antes de descargar.`);
+    $("#itT").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block:"start"});
+  } catch(e){
+    setStatus(esc(errText(e)), true);
+  } finally { reading = false; updateReadBtn(); }
+};
+
+/* ---------- exportar ---------- */
+function rows(){ return items.filter(it => it.producto.trim()).map(it => { const c = calc(it); return {...it, base:c.base, m:c.m, precio:c.precio}; }); }
+function fileBase(){
+  const p = (inv.proveedor || "factura").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").slice(0,40);
+  const d = (inv.fecha || new Date().toISOString().slice(0,10)).replace(/[^\d-]/g,"");
+  return `precios_${p}_${d}`;
+}
+const modoTxt = () => settings.modo === "costo" ? "sobre el costo" : "sobre la venta";
+let pending = null; // {blob, name}
+function offer(blob, name){
+  pending = {blob, name};
+  $("#shName").textContent = name;
+  const canShare = !!(navigator.canShare && navigator.canShare({files:[new File([blob], name, {type: blob.type})]}));
+  $("#shShare").hidden = !canShare;
+  $("#sheet").hidden = false;
+}
+$("#shClose").onclick = () => { $("#sheet").hidden = true; };
+$("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") $("#sheet").hidden = true; });
+$("#shSave").onclick = () => {
+  if (!pending) return;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(pending.blob); a.download = pending.name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  $("#sheet").hidden = true; toast("Guardado en Descargas");
+};
+$("#shShare").onclick = async () => {
+  if (!pending) return;
+  try { await navigator.share({files:[new File([pending.blob], pending.name, {type: pending.blob.type})], title: pending.name}); $("#sheet").hidden = true; }
+  catch(e){ if (e.name !== "AbortError") toast("No se pudo compartir. Usa Guardar en el celular."); }
+};
+
+$("#pdfBtn").onclick = () => {
+  const r = rows(); if (!r.length) return toast("No hay productos para exportar");
+  if (!window.jspdf) return toast("Cargando… intenta de nuevo en un segundo");
+  const { jsPDF } = window.jspdf; const doc = new jsPDF({unit:"pt", format:"letter"});
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(27,29,51);
+  doc.text(settings.negocio || "Lista de precios", 40, 50);
+  doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(94,98,128);
+  const meta = [inv.proveedor && `Proveedor: ${inv.proveedor}`, inv.numero && `Factura: ${inv.numero}`, inv.fecha && `Fecha: ${inv.fecha}`].filter(Boolean).join("   ·   ");
+  doc.text(meta, 40, 68);
+  doc.text(`Ganancia calculada ${modoTxt()}${settings.incluirIva ? ", IVA incluido en el costo" : ""}.`, 40, 82);
+  let tc=0, ts=0; r.forEach(x => { tc += x.base*x.cantidad; ts += x.precio*x.cantidad; });
+  doc.autoTable({
+    startY:98, margin:{left:40,right:40},
+    head:[["Producto","Marca","Cant.","Costo unit.","Ganancia","Precio venta"]],
+    body:r.map(x => [x.producto, x.marca || "—", String(x.cantidad), cop(x.base), x.m + "%", cop(x.precio)]),
+    foot:[["Totales","","",cop(tc),"",cop(ts)]],
+    styles:{font:"helvetica", fontSize:9.5, cellPadding:5, textColor:[27,29,51], lineColor:[218,220,232], lineWidth:.5},
+    headStyles:{fillColor:[58,63,166], textColor:255, fontStyle:"bold"},
+    footStyles:{fillColor:[230,231,247], textColor:[27,29,51], fontStyle:"bold"},
+    columnStyles:{2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right", fontStyle:"bold", fillColor:[255,240,160]}},
+    alternateRowStyles:{fillColor:[247,248,252]}
+  });
+  const y = doc.lastAutoTable.finalY + 20;
+  doc.setFontSize(10); doc.setTextColor(31,122,77); doc.setFont("helvetica","bold");
+  doc.text(`Ganancia estimada si vendes todo: ${cop(ts-tc)}`, 40, y);
+  doc.setFont("helvetica","normal"); doc.setTextColor(140,140,160); doc.setFontSize(8);
+  doc.text("Generado con PrecioListo", W-40, H-24, {align:"right"});
+  offer(doc.output("blob"), fileBase() + ".pdf");
+};
+$("#xlsBtn").onclick = () => {
+  const r = rows(); if (!r.length) return toast("No hay productos para exportar");
+  if (!window.XLSX) return toast("Cargando… intenta de nuevo en un segundo");
+  const header = ["Producto","Marca","Categoría","Cantidad","Costo unitario","IVA %","Costo con IVA","Ganancia %","Precio venta","Ganancia por unidad","Total costo","Total venta"];
+  const aoa = [
+    [settings.negocio || "Lista de precios"],
+    [`Proveedor: ${inv.proveedor||"—"}`, "", `Factura: ${inv.numero||"—"}`, "", `Fecha: ${inv.fecha||"—"}`],
+    [`Ganancia ${modoTxt()}`],
+    [],
+    header,
+    ...r.map(x => [x.producto, x.marca||"", x.categoria, x.cantidad, x.costo, x.iva||0, Math.round(x.base), x.m, x.precio, Math.round(x.precio-x.base), Math.round(x.base*x.cantidad), Math.round(x.precio*x.cantidad)])
+  ];
+  const first = 6, last = 5 + r.length;
+  aoa.push(["Totales","","","","","","","","","",{f:`SUM(K${first}:K${last})`},{f:`SUM(L${first}:L${last})`}]);
+  aoa.push(["Ganancia estimada","","","","","","","","","",{f:`L${last+1}-K${last+1}`}]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{wch:34},{wch:16},{wch:20},{wch:9},{wch:13},{wch:7},{wch:13},{wch:11},{wch:13},{wch:13},{wch:14},{wch:14}];
+  const money = "\"$\"#,##0";
+  for (let R = first-1; R <= last+1; R++) for (const C of [4,6,8,9,10,11]) { const a = XLSX.utils.encode_cell({r:R,c:C}); if (ws[a]) ws[a].z = money; }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Precios");
+  const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+  offer(new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fileBase() + ".xlsx");
+};
+
+/* ---------- pasar ajustes entre celulares ---------- */
+const b64e = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0)));
+$("#exportCfg").onclick = async () => {
+  const code = "PL1:" + b64e(JSON.stringify({s: settings, k: apiKey}));
+  try { await navigator.clipboard.writeText(code); toast("Código copiado. Pégalo en el otro celular."); }
+  catch(e){ $("#importBox").hidden = false; $("#importTxt").value = code; $("#importTxt").select(); toast("Copia el código seleccionado"); }
+};
+$("#importOpen").onclick = () => { $("#importBox").hidden = false; $("#importTxt").value = ""; $("#importTxt").focus(); };
+$("#importBtn").onclick = () => {
+  try {
+    const t = $("#importTxt").value.trim(); if (!t.startsWith("PL1:")) throw 0;
+    const o = JSON.parse(b64d(t.slice(4)));
+    if (!Array.isArray(o?.s?.categorias)) throw 0;
+    settings = {...structuredClone(DEFAULT_SETTINGS), ...o.s};
+    store.set("pl_settings", settings);
+    if (o.k) setKey(o.k);
+    renderSettings(); renderItems(); $("#importBox").hidden = true; toast("Ajustes aplicados");
+  } catch(e){ toast("Ese código no es válido. Cópialo completo otra vez."); }
+};
+
+/* ---------- instalar como app ---------- */
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("#installBtn").hidden = false; });
+$("#installBtn").onclick = async () => {
+  if (installEvt){ installEvt.prompt(); await installEvt.userChoice; installEvt = null; $("#installBtn").hidden = true; }
+};
+window.addEventListener("appinstalled", () => { $("#installBtn").hidden = true; toast("PrecioListo quedó instalada"); });
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._t); t._t = setTimeout(() => t.hidden = true, 2800); }
+
+/* ---------- inicio ---------- */
+renderInv(); renderSettings(); renderItems(); renderThumbs();
+if (modelCache?.list?.length) fillModelSelect(modelCache.list);
+</script>
+</body>
+</html>
