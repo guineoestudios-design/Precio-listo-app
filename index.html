@@ -18,6 +18,8 @@
 <script src="lib/jspdf.umd.min.js" defer></script>
 <script src="lib/jspdf.plugin.autotable.min.js" defer></script>
 <script src="lib/xlsx.full.min.js" defer></script>
+<script src="lib/tesseract/tesseract.min.js" defer></script>
+<script src="parser.js" defer></script>
 <style>
 /* Layout: una columna móvil — captura → productos como tarjetas editables → barra fija de descarga. Tinta azul de papel carbón + amarillo resaltador en el precio de venta. */
 :root{
@@ -94,6 +96,10 @@ input.num{font-family:var(--f-num);text-align:right}
 .result .small{font-size:12px;color:var(--muted);font-family:var(--f-num)}
 .price{font-family:var(--f-num);font-weight:700;font-size:20px;background:linear-gradient(transparent 55%,var(--marker) 55%);color:var(--ink);padding:0 3px;font-variant-numeric:tabular-nums}
 .override{color:var(--warn)}
+.item.flag{border-color:var(--warn);box-shadow:inset 3px 0 0 var(--warn)}
+.chip{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--warn);border:1px solid var(--warn);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.method{font-size:13px;margin:0;color:var(--ink)}
+.method b{color:var(--carbon)}
 .add{border-style:dashed;background:transparent;color:var(--carbon)}
 
 .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -143,21 +149,6 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
     <button id="installBtn" class="small-btn" hidden>Instalar app</button>
   </header>
 
-  <!-- Configuración inicial: sale solo si no hay clave -->
-  <section class="card setup" id="setupCard" hidden aria-labelledby="setT">
-    <h2 id="setT">Configura la lectura de facturas (una sola vez)</h2>
-    <ol>
-      <li>Abre <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e inicia sesión con tu cuenta de Google.</li>
-      <li>Toca <strong>Crear clave de API</strong> (Create API key) y cópiala.</li>
-      <li>Pégala aquí y toca <strong>Guardar</strong>.</li>
-    </ol>
-    <div class="inline">
-      <input id="keySetup" type="password" autocomplete="off" placeholder="Pega tu clave de Gemini" aria-label="Clave de Gemini">
-      <button id="keySetupBtn" class="primary">Guardar</button>
-    </div>
-    <p class="hint">La clave se guarda solo en este celular. Es gratis y no necesitas tarjeta.</p>
-  </section>
-
   <section class="card capture" aria-labelledby="capT">
     <h2 id="capT">1. Foto de la factura</h2>
     <div class="capture-row">
@@ -168,8 +159,10 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
     <input id="gal" type="file" accept="image/*" multiple hidden>
     <div class="thumbs" id="thumbs" hidden></div>
     <p class="hint">Si la factura es larga o la letra es pequeña, toma una foto por página o por mitad. Buena luz y la hoja bien plana.</p>
+    <p class="method" id="methodLine"></p>
     <button id="readBtn" class="primary" disabled>Leer factura</button>
     <div id="status" class="status" hidden></div>
+    <button id="cancelBtn" class="ghost small-btn" hidden>Cancelar lectura</button>
   </section>
 
   <section style="display:flex;flex-direction:column;gap:10px" aria-labelledby="itT">
@@ -217,6 +210,26 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
 
       <hr>
       <div class="f">
+        <label for="metodoSel">Cómo leer las facturas</label>
+        <select id="metodoSel">
+          <option value="auto">Automático: IA del PC si está disponible, si no el celular</option>
+          <option value="pc">Solo IA del PC</option>
+          <option value="celular">Solo lector del celular (sin internet)</option>
+          <option value="gemini">Gemini (internet, necesita clave)</option>
+        </select>
+      </div>
+      <div class="f" id="pcBox">
+        <label for="pcUrl">Dirección del PC</label>
+        <div class="inline">
+          <input id="pcUrl" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://mi-pc.tail1234.ts.net">
+          <button id="pcTest" class="small-btn">Probar</button>
+        </div>
+        <p class="hint" id="pcHint">La muestra el instalador del PC al terminar. Este celular debe tener Tailscale abierto.</p>
+        <label for="pcModelSel" style="margin-top:6px">Modelo del PC</label>
+        <select id="pcModelSel"><option value="">Automático</option></select>
+      </div>
+      <div class="f" id="gemBox">
+      <div class="f">
         <label for="keyInput">Clave de Gemini</label>
         <div class="inline">
           <input id="keyInput" type="password" autocomplete="off" placeholder="Pega tu clave">
@@ -229,11 +242,12 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
         <select id="modelSel"><option value="auto">Automático (recomendado)</option></select>
         <p class="hint">En automático usa el modelo Flash más nuevo del plan gratis y, si se agota el límite, prueba con otro.</p>
       </div>
+      </div>
 
       <hr>
       <div class="f">
         <span class="lbl">Pasar ajustes al otro celular</span>
-        <p class="hint">Copia este código y pégalo en PrecioListo del otro celular (por ejemplo, enviándotelo por WhatsApp). Pasa categorías, porcentajes y la clave.</p>
+        <p class="hint">Copia este código y pégalo en PrecioListo del otro celular (por ejemplo, enviándotelo por WhatsApp). Pasa categorías, porcentajes, la dirección del PC y la clave.</p>
         <div class="inline"><button id="exportCfg" class="small-btn">Copiar código</button><button id="importOpen" class="small-btn ghost">Pegar código</button></div>
         <div id="importBox" class="f" hidden>
           <textarea id="importTxt" aria-label="Código de ajustes" placeholder="Pega aquí el código"></textarea>
@@ -271,7 +285,7 @@ const store = {
   set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } }
 };
 const DEFAULT_SETTINGS = {
-  negocio:"", modo:"costo", redondeo:100, incluirIva:true, modelo:"auto",
+  negocio:"", modo:"costo", redondeo:100, incluirIva:true, modelo:"auto", metodo:"auto", pcUrl:"", pcModel:"",
   categorias:[
     {nombre:"Abarrotes",margen:20},{nombre:"Bebidas",margen:25},{nombre:"Lácteos y refrigerados",margen:18},
     {nombre:"Aseo y hogar",margen:30},{nombre:"Snacks y dulces",margen:35},{nombre:"Licores",margen:28},{nombre:"Otros",margen:25}
@@ -315,8 +329,8 @@ function catOptions(sel){
 function renderItems(){
   $("#items").innerHTML = items.map(it => {
     const c = calc(it);
-    return `<article class="item" data-id="${it.id}">
-      <div class="top full"><input id="p${it.id}" data-k="producto" value="${esc(it.producto)}" aria-label="Producto" placeholder="Producto">
+    return `<article class="item${it.revisar?" flag":""}" data-id="${it.id}">
+      <div class="top full"><input id="p${it.id}" data-k="producto" value="${esc(it.producto)}" aria-label="Producto" placeholder="Producto">${it.revisar?'<span class="chip">Revisar</span>':""}
         <button class="icon ghost" data-del="${it.id}" aria-label="Quitar producto">✕</button></div>
       <div class="f"><label for="m${it.id}">Marca</label><input id="m${it.id}" data-k="marca" value="${esc(it.marca)}" placeholder="—"></div>
       <div class="f"><label for="c${it.id}">Categoría</label><select id="c${it.id}" data-k="categoria">${catOptions(it.categoria)}</select></div>
@@ -352,7 +366,7 @@ $("#items").addEventListener("input", e => {
   const id = Number(e.target.closest(".item").dataset.id), it = items.find(x => x.id === id);
   if (k === "producto" || k === "marca") it[k] = e.target.value;
   else if (k === "margen") it.margen = e.target.value.trim() === "" ? null : num(e.target.value);
-  else it[k] = num(e.target.value);
+  else { it[k] = num(e.target.value); if (it.revisar && (k === "cantidad" || k === "costo")) { it.revisar = false; const el = e.target.closest(".item"); el.classList.remove("flag"); el.querySelector(".chip")?.remove(); } }
   refreshRow(id);
 });
 $("#items").addEventListener("change", e => {
@@ -386,8 +400,11 @@ function renderSettings(){
   $("#redondeo").value = String(settings.redondeo);
   $("#ivaChk").checked = !!settings.incluirIva;
   $("#keyInput").value = apiKey;
-  $("#setupCard").hidden = !!apiKey;
-  updateReadBtn();
+  $("#metodoSel").value = settings.metodo;
+  $("#pcUrl").value = settings.pcUrl || "";
+  $("#pcBox").hidden = !["auto","pc"].includes(settings.metodo);
+  $("#gemBox").hidden = settings.metodo !== "gemini";
+  updateReadBtn(); refreshMethodLine();
 }
 let saveTimer;
 function saveSettings(){
@@ -473,12 +490,6 @@ $("#keyTest").onclick = async () => {
   } catch(e){ $("#keyHint").textContent = errText(e); }
 };
 $("#keyInput").onchange = e => setKey(e.target.value);
-$("#keySetupBtn").onclick = async () => {
-  const k = $("#keySetup").value.trim(); if (!k) return toast("Pega tu clave primero");
-  setKey(k); toast("Clave guardada");
-  try { fillModelSelect(await listModels()); } catch(e){ toast(errText(e)); }
-};
-
 /* ---------- fotos ---------- */
 const MAX_PHOTOS = 6;
 function addPhotos(list){
@@ -494,8 +505,9 @@ function renderThumbs(){
 }
 function updateReadBtn(){
   const b = $("#readBtn");
-  b.disabled = photos.length === 0 || !apiKey || reading;
-  b.textContent = !apiKey ? "Primero configura tu clave" : photos.length > 1 ? `Leer factura (${photos.length} fotos)` : "Leer factura";
+  const needKey = settings.metodo === "gemini" && !apiKey;
+  b.disabled = photos.length === 0 || needKey || reading;
+  b.textContent = needKey ? "Primero pon tu clave de Gemini en Ajustes" : photos.length > 1 ? `Leer factura (${photos.length} fotos)` : "Leer factura";
 }
 $("#thumbs").addEventListener("click", e => { const d = e.target.closest("[data-pdel]"); if (d){ photos.splice(Number(d.dataset.pdel),1); renderThumbs(); } });
 $("#cam").onchange = e => { addPhotos(e.target.files); e.target.value = ""; };
@@ -517,10 +529,16 @@ async function toJpegBase64(file, maxSide = 2000){
   return url.slice(url.indexOf(",") + 1);
 }
 
-/* ---------- lectura con Gemini ---------- */
+/* ---------- lectura: utilidades comunes ---------- */
 let reading = false;
 function setStatus(html, err){ const s = $("#status"); s.hidden = !html; s.className = "status" + (err ? " err" : ""); s.innerHTML = html || ""; }
 function errText(e){
+  if (e?.code === "pc_nourl") return "Falta la dirección del PC. Ponla en Ajustes → Dirección del PC.";
+  if (e?.code === "pc_http") return "La dirección del PC debe empezar con https:// (la que te da Tailscale).";
+  if (e?.code === "pc_off") return "No pude conectar con el PC. Revisa que esté prendido, que Ollama esté abierto y que Tailscale esté activo en este celular.";
+  if (e?.code === "pc_origin") return "El PC rechazó la conexión. Vuelve a ejecutar el instalador del PC para permitir esta app.";
+  if (e?.code === "pc_model") return "El PC no tiene un modelo de visión instalado. Ejecuta el instalador del PC.";
+  if (e?.code === "empty_phone") return "El lector del celular no encontró productos. Toma la foto más cerca, con buena luz y la hoja recta, o prueba con la IA del PC.";
   if (e?.code === "key") return "La clave de Gemini no es válida o no tiene permiso. Revísala en Ajustes.";
   if (e?.code === "busy") return "Los servidores de Gemini están muy ocupados en este momento (no es tu clave ni tu foto). Probé con varios modelos; intenta de nuevo en uno o dos minutos.";
   if (e?.code === "quota") return "Llegaste al límite gratis de Gemini por ahora. Espera un minuto (o hasta mañana si es el límite diario) y vuelve a intentar.";
@@ -528,7 +546,7 @@ function errText(e){
   if (e?.code === "empty") return "No encontré productos en la foto. Prueba con más luz o una foto más cercana.";
   if (e?.code === "parse") return "La lectura salió incompleta. Toca \"Leer factura\" otra vez o usa fotos más cercanas.";
   if (e?.code === "blocked") return "Gemini no quiso procesar esta imagen. Verifica que sea una factura.";
-  return "Hubo un problema con Gemini" + (e?.message ? `: ${e.message}` : ".") ;
+  return "Hubo un problema al leer la factura" + (e?.message ? `: ${e.message.slice(0,200)}` : ".");
 }
 function buildPrompt(n){
   const cats = settings.categorias.map(c => c.nombre);
@@ -569,54 +587,272 @@ async function callGemini(model, parts){
   if (!text.trim()) { const e = new Error(cand.finishReason || ""); e.code = cand.finishReason === "SAFETY" ? "blocked" : "parse"; throw e; }
   return parseJson(text);
 }
-$("#readBtn").onclick = async () => {
-  if (!apiKey || !photos.length || reading) return;
-  reading = true; updateReadBtn();
-  const say = t => setStatus(`<span style="display:inline-flex;gap:8px;align-items:center"><span class="spin"></span> ${t}</span>`);
+/* ---------- lector del celular (OCR + algoritmo, sin internet) ---------- */
+let ocrWorker = null, ocrProgress = null;
+async function getOcr(){
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) { const e = new Error("El lector todavía está cargando. Intenta de nuevo en unos segundos."); e.code = "api"; throw e; }
+  const base = new URL("lib/tesseract/", location.href).href;
+  ocrWorker = await Tesseract.createWorker("spa", 1, {
+    workerPath: base + "worker.min.js", corePath: base + "core", langPath: base + "lang", gzip: true,
+    logger: m => ocrProgress && ocrProgress(m)
+  });
+  await ocrWorker.setParameters({tessedit_pageseg_mode: "6", preserve_interword_spaces: "1"});
+  return ocrWorker;
+}
+// Escala de grises + corrección de sombras (divide por el fondo) + contraste. Conserva los grises: binarizar
+// a blanco/negro le hacía confundir 0 con 6 y 8 en fotos algo borrosas.
+async function prepForOcr(file){
+  const bmp = await createImageBitmap(file, {imageOrientation:"from-image"});
+  const long = Math.max(bmp.width, bmp.height), k = Math.min(2, 2400 / long);
+  const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d", {willReadFrequently:true});
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h), d = img.data, n = w*h;
+  const g = new Float32Array(n);
+  for (let i = 0, j = 0; j < n; i += 4, j++) g[j] = .299*d[i] + .587*d[i+1] + .114*d[i+2];
+  // Fondo = promedio local grande (integral image); el papel queda parejo aunque tenga sombra.
+  const W1 = w + 1, I = new Float64Array(W1*(h+1));
+  for (let y = 0; y < h; y++){ let row = 0; for (let x = 0; x < w; x++){ row += g[y*w+x]; I[(y+1)*W1+x+1] = I[y*W1+x+1] + row; } }
+  const r = Math.max(15, Math.round(Math.max(w, h) / 20));
+  const out = new Float32Array(n), hist = new Uint32Array(256);
+  for (let y = 0; y < h; y++){
+    const y0 = Math.max(0, y-r), y1 = Math.min(h-1, y+r);
+    for (let x = 0; x < w; x++){
+      const x0 = Math.max(0, x-r), x1 = Math.min(w-1, x+r);
+      const mean = (I[(y1+1)*W1+x1+1] - I[y0*W1+x1+1] - I[(y1+1)*W1+x0] + I[y0*W1+x0]) / ((x1-x0+1)*(y1-y0+1));
+      const v = Math.min(255, g[y*w+x] / Math.max(mean, 1) * 235);
+      out[y*w+x] = v; hist[v|0]++;
+    }
+  }
+  // Estira el contraste entre el 1 % más oscuro y el 60 % (papel)
+  let acc = 0, lo = 0, hi = 255;
+  for (let i = 0; i < 256; i++){ acc += hist[i]; if (acc < n*0.01) lo = i; if (acc < n*0.60) hi = i; }
+  hi = Math.max(hi, lo + 40);
+  for (let j = 0, i = 0; j < n; j++, i += 4){
+    const v = Math.max(0, Math.min(255, (out[j]-lo) * 255 / (hi-lo)));
+    d[i] = d[i+1] = d[i+2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+async function readWithPhone(say, isCancelled){
+  if (!window.InvoiceParser) { const e = new Error("El lector todavía está cargando."); e.code = "api"; throw e; }
+  say("Preparando el lector del celular… (la primera vez tarda un poco más)");
+  const worker = await getOcr();
+  const lines = [];
+  for (let i = 0; i < photos.length; i++){
+    if (isCancelled()) return null;
+    const tag = photos.length > 1 ? ` (foto ${i+1} de ${photos.length})` : "";
+    say(`Mejorando la imagen${tag}…`);
+    const canvas = await prepForOcr(photos[i]);
+    ocrProgress = m => { if (m.status === "recognizing text") say(`Leyendo el texto${tag}… ${Math.round(m.progress*100)}%`); };
+    const {data} = await worker.recognize(canvas);
+    ocrProgress = null;
+    lines.push(...data.text.split("\n"));
+  }
+  const res = InvoiceParser.parseInvoice(lines, settings.categorias);
+  const seen = new Set();
+  res.items = res.items.filter(x => { const k = `${x.producto}|${x.cantidad}|${x.costo_unitario}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return res;
+}
+
+/* ---------- IA del PC (Ollama a través de Tailscale) ---------- */
+const VISION_RE = /(qwen[\d.]*-?vl|llava|vision|minicpm-v|moondream|gemma3|mistral-small3\.[12]|llama4)/i;
+const pcBase = () => (settings.pcUrl || "").trim().replace(/\/+$/, "");
+let pcState = {at:0, ok:false, models:[]};
+async function pcModels(timeout = 4000){
+  const base = pcBase();
+  if (!base) { const e = new Error(""); e.code = "pc_nourl"; throw e; }
+  if (location.protocol === "https:" && base.startsWith("http:")) { const e = new Error(""); e.code = "pc_http"; throw e; }
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeout);
   try {
-    say("Preparando las fotos…");
-    const imgs = await Promise.all(photos.map(f => toJpegBase64(f)));
-    const parts = [...imgs.map(d => ({inline_data:{mime_type:"image/jpeg", data:d}})), {text: buildPrompt(imgs.length)}];
-    say("Buscando el modelo de Gemini…");
-    let models;
-    try { models = await getModels(); } catch(e){ if (e.code) throw e; const err = new Error("net"); err.code = "net"; throw err; }
-    fillModelSelect(models);
-    const order = settings.modelo !== "auto" ? [settings.modelo, ...models.filter(m => m !== settings.modelo)] : models;
-    if (!order.length) { const e = new Error("Tu clave no tiene modelos Flash disponibles."); e.code = "api"; throw e; }
-    let data = null, lastErr = null;
-    // Si un modelo está saturado o sin cupo: reintenta una vez tras una pausa y luego pasa al siguiente.
-    const wait = ms => new Promise(ok => setTimeout(ok, ms));
-    outer: for (const m of order.slice(0, 5)){
-      for (let intento = 1; intento <= 2; intento++){
-        say(intento === 1
-          ? `Leyendo la factura con ${m}… puede tardar hasta un minuto.`
-          : `${m} está ocupado, reintentando…`);
-        try { data = await callGemini(m, parts); break outer; }
-        catch(e){
-          lastErr = e;
-          if (!["quota","model","busy"].includes(e.code)) throw e;
-          if (e.code !== "busy" || intento === 2) break;   // sin cupo o no existe: pasa al siguiente modelo
-          await wait(3000);
-        }
+    const r = await fetch(base + "/api/tags", {signal: ctl.signal});
+    if (!r.ok) { const e = new Error("HTTP " + r.status); e.code = r.status === 403 ? "pc_origin" : "pc_off"; throw e; }
+    const j = await r.json();
+    const names = (j.models || []).map(m => m.name).filter(n => VISION_RE.test(n));
+    pcState = {at: Date.now(), ok: true, models: names};
+    return names;
+  } catch(e){ pcState = {at: Date.now(), ok:false, models:[]}; if (!e.code) e.code = "pc_off"; throw e; }
+  finally { clearTimeout(t); }
+}
+function pickPcModel(names){
+  if (settings.pcModel && names.includes(settings.pcModel)) return settings.pcModel;
+  const pref = [/qwen3-vl:4b/i, /qwen3-vl:2b/i, /qwen3-vl/i, /qwen2\.5-?vl/i, /minicpm-v/i, /gemma3/i, /llava/i];
+  for (const re of pref){ const m = names.find(n => re.test(n)); if (m) return m; }
+  return names[0];
+}
+function fillPcModels(names){
+  const sel = $("#pcModelSel");
+  sel.innerHTML = `<option value="">Automático${names.length ? " (" + esc(pickPcModel(names)) + ")" : ""}</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = names.includes(settings.pcModel) ? settings.pcModel : "";
+}
+async function readWithPC(model, say, signal){
+  const imgs = await Promise.all(photos.map(f => toJpegBase64(f, 1280)));
+  const started = Date.now();
+  let produced = 0, content = "";
+  const tick = setInterval(() => say(`El PC está leyendo la factura con ${model}… ${Math.round((Date.now()-started)/1000)} s${produced ? ` · ${produced} productos` : ""}<br><small>Con este PC suele tardar 1 a 3 minutos.</small>`), 1000);
+  const send = async withThink => {
+    const body = {model, stream:true, format:"json", keep_alive:"30m", options:{temperature:0, num_ctx:8192},
+      messages:[{role:"user", content: buildPrompt(imgs.length), images: imgs}]};
+    if (withThink) body.think = false;
+    return fetch(pcBase() + "/api/chat", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body), signal});
+  };
+  try {
+    let r;
+    try {
+      r = await send(true);
+      if (r.status === 400){ const t = await r.text(); if (/think/i.test(t)) r = await send(false); else { const e = new Error(t); e.code = "api"; throw e; } }
+    } catch(e){ if (e.name === "AbortError") throw e; if (!e.code) e.code = "pc_off"; throw e; }
+    if (!r.ok) { const e = new Error(await r.text().catch(() => "")); e.code = "api"; throw e; }
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;){
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+        if (!line) continue;
+        const j = JSON.parse(line);
+        if (j.error) { const e = new Error(j.error); e.code = "api"; throw e; }
+        content += j.message?.content || "";
+        produced = (content.match(/"producto"/g) || []).length;
       }
     }
-    if (!data) throw lastErr;
+    return parseJson(content);
+  } finally { clearInterval(tick); }
+}
+
+/* ---------- Gemini (opcional) ---------- */
+async function readWithGemini(say){
+  if (!apiKey) { const e = new Error(""); e.code = "key"; throw e; }
+  const imgs = await Promise.all(photos.map(f => toJpegBase64(f)));
+  const parts = [...imgs.map(d => ({inline_data:{mime_type:"image/jpeg", data:d}})), {text: buildPrompt(imgs.length)}];
+  say("Buscando el modelo de Gemini…");
+  let models;
+  try { models = await getModels(); } catch(e){ if (e.code) throw e; const err = new Error("net"); err.code = "net"; throw err; }
+  fillModelSelect(models);
+  const order = settings.modelo !== "auto" ? [settings.modelo, ...models.filter(m => m !== settings.modelo)] : models;
+  if (!order.length) { const e = new Error("Tu clave no tiene modelos Flash disponibles."); e.code = "api"; throw e; }
+  let lastErr = null;
+  const wait = ms => new Promise(ok => setTimeout(ok, ms));
+  for (const m of order.slice(0, 5)){
+    for (let intento = 1; intento <= 2; intento++){
+      say(intento === 1 ? `Leyendo la factura con ${m}… puede tardar hasta un minuto.` : `${m} está ocupado, reintentando…`);
+      try { return await callGemini(m, parts); }
+      catch(e){
+        lastErr = e;
+        if (!["quota","model","busy"].includes(e.code)) throw e;
+        if (e.code !== "busy" || intento === 2) break;
+        await wait(3000);
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/* ---------- qué método se usará ---------- */
+async function resolveMethod(){
+  if (settings.metodo === "celular" || settings.metodo === "gemini") return {via: settings.metodo};
+  if (!pcBase()) { if (settings.metodo === "pc") { const e = new Error(""); e.code = "pc_nourl"; throw e; } return {via:"celular"}; }
+  try {
+    const names = await pcModels();
+    if (!names.length) { const e = new Error(""); e.code = "pc_model"; throw e; }
+    return {via:"pc", model: pickPcModel(names)};
+  } catch(e){
+    if (settings.metodo === "pc") throw e;
+    return {via:"celular", pcFail: e.code};
+  }
+}
+const METHOD_TXT = {pc:"la IA de tu PC", celular:"el lector del celular", gemini:"Gemini"};
+let methodLineSeq = 0;
+async function refreshMethodLine(){
+  const el = $("#methodLine"), seq = ++methodLineSeq;
+  if (settings.metodo === "celular") { el.innerHTML = "Se leerá con <b>el lector del celular</b> (sin internet)."; return; }
+  if (settings.metodo === "gemini") { el.innerHTML = "Se leerá con <b>Gemini</b> (necesita internet)."; return; }
+  if (!pcBase()) { el.innerHTML = settings.metodo === "pc" ? "Falta la dirección del PC en Ajustes." : "Se leerá con <b>el lector del celular</b>. Para usar la IA del PC, pon su dirección en Ajustes."; return; }
+  el.textContent = "Buscando el PC…";
+  try {
+    const names = await pcModels();
+    if (seq !== methodLineSeq) return;
+    fillPcModels(names);
+    el.innerHTML = names.length ? `Se leerá con <b>la IA de tu PC</b> (${esc(pickPcModel(names))}).` : "El PC responde pero no tiene modelo de visión. Ejecuta el instalador del PC.";
+  } catch(e){
+    if (seq !== methodLineSeq) return;
+    el.innerHTML = settings.metodo === "pc" ? `<span style="color:var(--danger)">No encuentro el PC.</span> Revisa que esté prendido y con Tailscale activo aquí.` : "PC no disponible: se leerá con <b>el lector del celular</b>.";
+  }
+}
+
+/* ---------- botón Leer factura ---------- */
+let cancelCtl = null, cancelled = false;
+$("#cancelBtn").onclick = async () => {
+  cancelled = true; cancelCtl?.abort();
+  if (ocrWorker) { try { await ocrWorker.terminate(); } catch(e){} ocrWorker = null; }
+  setStatus("Lectura cancelada."); $("#cancelBtn").hidden = true;
+};
+$("#readBtn").onclick = async () => {
+  if (!photos.length || reading) return;
+  reading = true; cancelled = false; cancelCtl = new AbortController(); updateReadBtn();
+  $("#cancelBtn").hidden = false;
+  const say = t => { if (!cancelled) setStatus(`<span style="display:inline-flex;gap:8px;align-items:flex-start"><span class="spin" style="margin-top:3px"></span><span>${t}</span></span>`); };
+  let via = "", note = "";
+  try {
+    say("Eligiendo cómo leer la factura…");
+    const m = await resolveMethod();
+    via = m.via;
+    if (m.pcFail) note = " (el PC no respondió, usé el celular)";
+    let data;
+    if (via === "pc") {
+      try { data = await readWithPC(m.model, say, cancelCtl.signal); }
+      catch(e){
+        if (cancelled) return;
+        if (settings.metodo === "auto" && e.code === "pc_off") { via = "celular"; note = " (se perdió la conexión con el PC, usé el celular)"; data = await readWithPhone(say, () => cancelled); }
+        else throw e;
+      }
+    }
+    else if (via === "gemini") data = await readWithGemini(say);
+    else data = await readWithPhone(say, () => cancelled);
+    if (cancelled || !data) return;
+
     const cats = settings.categorias.map(c => c.nombre);
     const list = Array.isArray(data?.items) ? data.items : [];
-    if (!list.length) { const e = new Error(""); e.code = "empty"; throw e; }
+    if (!list.length) { const e = new Error(""); e.code = via === "celular" ? "empty_phone" : "empty"; throw e; }
     inv = {proveedor: data.proveedor || "", numero: data.numero || "", fecha: data.fecha || ""};
     items = list.map(x => ({
       id: uid++, producto: String(x.producto || ""), marca: x.marca ? String(x.marca) : "",
       cantidad: num(x.cantidad) || 1, costo: Math.round(num(x.costo_unitario) * 100) / 100, iva: num(x.iva_pct),
-      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null
+      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null, revisar: !!x.revisar
     }));
     isExample = false;
     renderInv(); renderItems();
-    setStatus(`Listo: ${items.length} productos leídos. Revisa nombres y costos antes de descargar.`);
+    const flagged = items.filter(x => x.revisar).length;
+    setStatus(`Listo: ${items.length} productos leídos con ${METHOD_TXT[via]}${note}.${flagged ? ` <b>${flagged} ${flagged === 1 ? "marcado" : "marcados"} para revisar</b>.` : ""} Revisa nombres y costos antes de descargar.`);
     $("#itT").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block:"start"});
   } catch(e){
+    if (cancelled || e?.name === "AbortError") return;
     setStatus(esc(errText(e)), true);
-  } finally { reading = false; updateReadBtn(); }
+  } finally { reading = false; cancelCtl = null; $("#cancelBtn").hidden = true; updateReadBtn(); }
+};
+
+/* ---------- ajustes de método ---------- */
+$("#metodoSel").onchange = e => { settings.metodo = e.target.value; saveSettings(); renderSettings(); };
+$("#pcUrl").onchange = e => {
+  let v = e.target.value.trim();
+  if (v && !/^https?:\/\//i.test(v)) v = "https://" + v;
+  settings.pcUrl = v.replace(/\/+$/, ""); e.target.value = settings.pcUrl; saveSettings(); refreshMethodLine();
+};
+$("#pcModelSel").onchange = e => { settings.pcModel = e.target.value; saveSettings(); refreshMethodLine(); };
+$("#pcTest").onclick = async () => {
+  $("#pcUrl").dispatchEvent(new Event("change"));
+  $("#pcHint").textContent = "Probando conexión con el PC…";
+  try {
+    const names = await pcModels(6000); fillPcModels(names);
+    $("#pcHint").textContent = names.length ? `Conectado. Modelos de visión en el PC: ${names.join(", ")}.` : "El PC responde, pero no tiene un modelo de visión. Ejecuta de nuevo el instalador del PC.";
+  } catch(e){ $("#pcHint").textContent = errText(e); }
+  refreshMethodLine();
 };
 
 /* ---------- exportar ---------- */
@@ -738,6 +974,7 @@ function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = fals
 /* ---------- inicio ---------- */
 renderInv(); renderSettings(); renderItems(); renderThumbs();
 if (modelCache?.list?.length) fillModelSelect(modelCache.list);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !reading) refreshMethodLine(); });
 </script>
 </body>
 </html>

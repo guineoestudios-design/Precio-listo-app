@@ -1,10 +1,12 @@
 // PrecioListo — guarda la app en el celular para que abra rápido y sin internet.
-// La lectura de facturas (Gemini) siempre necesita internet.
-const CACHE = "preciolisto-v2";
+// El lector del celular funciona sin internet; la IA del PC necesita Tailscale y Gemini necesita internet.
+const CACHE = "preciolisto-v3";
 const FILES = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
-  "./lib/jspdf.umd.min.js", "./lib/jspdf.plugin.autotable.min.js", "./lib/xlsx.full.min.js"
+  "./lib/jspdf.umd.min.js", "./lib/jspdf.plugin.autotable.min.js", "./lib/xlsx.full.min.js",
+  "./parser.js", "./lib/tesseract/tesseract.min.js", "./lib/tesseract/worker.min.js",
+  "./lib/tesseract/core/tesseract-core-simd-lstm.wasm.js", "./lib/tesseract/lang/spa.traineddata.gz"
 ];
 
 self.addEventListener("install", e => {
