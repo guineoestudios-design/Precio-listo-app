@@ -456,7 +456,10 @@ function fillModelSelect(list){
 async function apiError(r){
   let msg = ""; try { const j = await r.json(); msg = j?.error?.message || ""; } catch(e){}
   const e = new Error(msg); e.status = r.status;
-  e.code = r.status === 429 ? "quota" : (r.status === 400 && /api key/i.test(msg)) || r.status === 401 || r.status === 403 ? "key" : r.status === 404 ? "model" : "api";
+  e.code = r.status === 429 ? "quota"
+    : [500, 502, 503, 504].includes(r.status) ? "busy"
+    : (r.status === 400 && /api key/i.test(msg)) || r.status === 401 || r.status === 403 ? "key"
+    : r.status === 404 ? "model" : "api";
   return e;
 }
 $("#keyTest").onclick = async () => {
@@ -519,6 +522,7 @@ let reading = false;
 function setStatus(html, err){ const s = $("#status"); s.hidden = !html; s.className = "status" + (err ? " err" : ""); s.innerHTML = html || ""; }
 function errText(e){
   if (e?.code === "key") return "La clave de Gemini no es válida o no tiene permiso. Revísala en Ajustes.";
+  if (e?.code === "busy") return "Los servidores de Gemini están muy ocupados en este momento (no es tu clave ni tu foto). Probé con varios modelos; intenta de nuevo en uno o dos minutos.";
   if (e?.code === "quota") return "Llegaste al límite gratis de Gemini por ahora. Espera un minuto (o hasta mañana si es el límite diario) y vuelve a intentar.";
   if (e?.code === "net") return "No hay conexión a internet. La lectura de facturas necesita internet.";
   if (e?.code === "empty") return "No encontré productos en la foto. Prueba con más luz o una foto más cercana.";
@@ -580,10 +584,21 @@ $("#readBtn").onclick = async () => {
     const order = settings.modelo !== "auto" ? [settings.modelo, ...models.filter(m => m !== settings.modelo)] : models;
     if (!order.length) { const e = new Error("Tu clave no tiene modelos Flash disponibles."); e.code = "api"; throw e; }
     let data = null, lastErr = null;
-    for (const m of order.slice(0, 3)){
-      say(`Leyendo la factura con ${m}… puede tardar hasta un minuto.`);
-      try { data = await callGemini(m, parts); break; }
-      catch(e){ lastErr = e; if (!["quota","model"].includes(e.code)) throw e; }
+    // Si un modelo está saturado o sin cupo: reintenta una vez tras una pausa y luego pasa al siguiente.
+    const wait = ms => new Promise(ok => setTimeout(ok, ms));
+    outer: for (const m of order.slice(0, 5)){
+      for (let intento = 1; intento <= 2; intento++){
+        say(intento === 1
+          ? `Leyendo la factura con ${m}… puede tardar hasta un minuto.`
+          : `${m} está ocupado, reintentando…`);
+        try { data = await callGemini(m, parts); break outer; }
+        catch(e){
+          lastErr = e;
+          if (!["quota","model","busy"].includes(e.code)) throw e;
+          if (e.code !== "busy" || intento === 2) break;   // sin cupo o no existe: pasa al siguiente modelo
+          await wait(3000);
+        }
+      }
     }
     if (!data) throw lastErr;
     const cats = settings.categorias.map(c => c.nombre);

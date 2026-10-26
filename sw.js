@@ -1,6 +1,6 @@
 // PrecioListo — guarda la app en el celular para que abra rápido y sin internet.
 // La lectura de facturas (Gemini) siempre necesita internet.
-const CACHE = "preciolisto-v1";
+const CACHE = "preciolisto-v2";
 const FILES = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
