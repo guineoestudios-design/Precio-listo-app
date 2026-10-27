@@ -61,7 +61,7 @@ timeout /t 2 /nobreak >nul
 start "" "%OLLAMA_APP%"
 echo Esperando a que Ollama arranque...
 timeout /t 8 /nobreak >nul
-echo Si Windows pregunta por el Firewall, permite el acceso en "Redes privadas".
+echo Si Windows pregunta por el Firewall para Ollama, toca CANCELAR: no hace falta y es mas seguro.
 
 echo.
 echo --- Paso 3 de 5: Descargando el modelo de vision (3,3 GB) ---

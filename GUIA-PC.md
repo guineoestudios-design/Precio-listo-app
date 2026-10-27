@@ -15,7 +15,7 @@ Con esto el celular le manda la foto de la factura al PC, y el PC la lee con una
 5. Si Tailscale pide **habilitar HTTPS**, abre el enlace que aparece, toca **Enable** y vuelve a ejecutar el instalador.
 6. Al final aparece una dirección como `https://nombre-del-pc.tail1234.ts.net`. Anótala.
 
-Si Windows pregunta por el **Firewall** de Ollama, permite **Redes privadas**.
+Si Windows pregunta por el **Firewall** de Ollama, toca **Cancelar**. La app no lo necesita (Tailscale le llega a Ollama desde el mismo PC) y así nadie más en tu wifi puede usar la IA. Si ya lo permitiste: busca "Permitir una aplicación a través del Firewall de Windows" → Cambiar la configuración → desmarca Ollama en *Privada* y *Pública*.
 
 ## Instalar en un PC donde no quieres iniciar sesión (por ejemplo, el del trabajo)
 No necesitas cuentas en ese PC: Ollama y el modelo no piden cuenta, y Tailscale se conecta con una clave de acceso que creas desde tu celular.
@@ -36,6 +36,7 @@ La clave sirve una sola vez y vence en unos días; si caduca, crea otra.
 5. Para pasarlo al otro celular: **Ajustes → Copiar código**, y en el otro **Pegar código**.
 
 ## Uso diario
+- Mientras lee una factura, **deja la app abierta y la pantalla encendida**. Si se apaga o cambias de app, el celular corta la conexión y hay que volver a leer.
 - El PC debe estar **prendido y sin suspender**. Para evitar que se duerma: Configuración de Windows → Sistema → Inicio/apagado y suspensión → "Cuando está enchufado, suspender después de": **Nunca**.
 - Ollama arranca solo con Windows; no tienes que abrir nada.
 - Con este PC cada factura tarda de 1 a 3 minutos. La primera del día tarda un poco más porque el modelo se carga en memoria.

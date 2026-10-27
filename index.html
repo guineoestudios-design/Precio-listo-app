@@ -533,6 +533,7 @@ async function toJpegBase64(file, maxSide = 2000){
 let reading = false;
 function setStatus(html, err){ const s = $("#status"); s.hidden = !html; s.className = "status" + (err ? " err" : ""); s.innerHTML = html || ""; }
 function errText(e){
+  if (e?.code === "hidden") return "La lectura se interrumpió porque la pantalla se apagó o cambiaste de app. Toca \"Leer factura\" otra vez y deja la app abierta hasta que termine.";
   if (e?.code === "pc_nourl") return "Falta la dirección del PC. Ponla en Ajustes → Dirección del PC.";
   if (e?.code === "pc_http") return "La dirección del PC debe empezar con https:// (la que te da Tailscale).";
   if (e?.code === "pc_off") return "No pude conectar con el PC. Revisa que esté prendido, que Ollama esté abierto y que Tailscale esté activo en este celular.";
@@ -693,7 +694,7 @@ async function readWithPC(model, say, signal){
   const imgs = await Promise.all(photos.map(f => toJpegBase64(f, 1280)));
   const started = Date.now();
   let produced = 0, content = "";
-  const tick = setInterval(() => say(`El PC está leyendo la factura con ${model}… ${Math.round((Date.now()-started)/1000)} s${produced ? ` · ${produced} productos` : ""}<br><small>Con este PC suele tardar 1 a 3 minutos.</small>`), 1000);
+  const tick = setInterval(() => say(`El PC está leyendo la factura con ${model}… ${Math.round((Date.now()-started)/1000)} s${produced ? ` · ${produced} productos` : ""}<br><small>Con este PC suele tardar 1 a 3 minutos. No apagues la pantalla ni cambies de app.</small>`), 1000);
   const send = async withThink => {
     const body = {model, stream:true, format:"json", keep_alive:"30m", options:{temperature:0, num_ctx:8192},
       messages:[{role:"user", content: buildPrompt(imgs.length), images: imgs}]};
@@ -786,6 +787,21 @@ async function refreshMethodLine(){
   }
 }
 
+/* ---------- mantener la pantalla encendida mientras lee ---------- */
+// Si la pantalla se apaga o se cambia de app, el celular corta la conexión con el PC y la lectura se pierde.
+let wakeLock = null, wentHidden = false;
+async function keepAwake(on){
+  try {
+    if (on && "wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch(e){ wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (!reading) return;
+  if (document.hidden) wentHidden = true;
+  else if (!wakeLock) keepAwake(true);   // el bloqueo se suelta al ocultarse; se pide de nuevo al volver
+});
+
 /* ---------- botón Leer factura ---------- */
 let cancelCtl = null, cancelled = false;
 $("#cancelBtn").onclick = async () => {
@@ -796,6 +812,7 @@ $("#cancelBtn").onclick = async () => {
 $("#readBtn").onclick = async () => {
   if (!photos.length || reading) return;
   reading = true; cancelled = false; cancelCtl = new AbortController(); updateReadBtn();
+  wentHidden = false; await keepAwake(true);
   $("#cancelBtn").hidden = false;
   const say = t => { if (!cancelled) setStatus(`<span style="display:inline-flex;gap:8px;align-items:flex-start"><span class="spin" style="margin-top:3px"></span><span>${t}</span></span>`); };
   let via = "", note = "";
@@ -809,6 +826,7 @@ $("#readBtn").onclick = async () => {
       try { data = await readWithPC(m.model, say, cancelCtl.signal); }
       catch(e){
         if (cancelled) return;
+        if (wentHidden) { const err = new Error(""); err.code = "hidden"; throw err; }
         if (settings.metodo === "auto" && e.code === "pc_off") { via = "celular"; note = " (se perdió la conexión con el PC, usé el celular)"; data = await readWithPhone(say, () => cancelled); }
         else throw e;
       }
@@ -833,8 +851,9 @@ $("#readBtn").onclick = async () => {
     $("#itT").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block:"start"});
   } catch(e){
     if (cancelled || e?.name === "AbortError") return;
+    if (wentHidden && e?.code !== "hidden" && (via === "pc" || via === "gemini") && ["pc_off","net","api"].includes(e?.code)) e = {code:"hidden"};
     setStatus(esc(errText(e)), true);
-  } finally { reading = false; cancelCtl = null; $("#cancelBtn").hidden = true; updateReadBtn(); }
+  } finally { reading = false; cancelCtl = null; $("#cancelBtn").hidden = true; updateReadBtn(); keepAwake(false); }
 };
 
 /* ---------- ajustes de método ---------- */
