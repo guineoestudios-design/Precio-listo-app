@@ -534,6 +534,7 @@ let reading = false;
 function setStatus(html, err){ const s = $("#status"); s.hidden = !html; s.className = "status" + (err ? " err" : ""); s.innerHTML = html || ""; }
 function errText(e){
   if (e?.code === "hidden") return "La lectura se interrumpió porque la pantalla se apagó o cambiaste de app. Toca \"Leer factura\" otra vez y deja la app abierta hasta que termine.";
+  if (e?.code === "pc_drop") return `Se cortó la conexión con el PC a los ${e.secs} s, ${e.any ? `cuando ya iba escribiendo (${e.got || 0} productos)` : "antes de que empezara a responder"}. Puede ser que el PC se quedó sin memoria o que Ollama se reinició. Toca "Leer factura" otra vez; si se repite, mándame este mensaje.`;
   if (e?.code === "pc_nourl") return "Falta la dirección del PC. Ponla en Ajustes → Dirección del PC.";
   if (e?.code === "pc_http") return "La dirección del PC debe empezar con https:// (la que te da Tailscale).";
   if (e?.code === "pc_off") return "No pude conectar con el PC. Revisa que esté prendido, que Ollama esté abierto y que Tailscale esté activo en este celular.";
@@ -706,11 +707,21 @@ async function readWithPC(model, say, signal){
     try {
       r = await send(true);
       if (r.status === 400){ const t = await r.text(); if (/think/i.test(t)) r = await send(false); else { const e = new Error(t); e.code = "api"; throw e; } }
-    } catch(e){ if (e.name === "AbortError") throw e; if (!e.code) e.code = "pc_off"; throw e; }
+    } catch(e){
+      if (e.name === "AbortError") throw e;
+      if (!e.code){ e.code = Date.now() - started > 15000 ? "pc_drop" : "pc_off"; e.secs = Math.round((Date.now()-started)/1000); e.any = false; }
+      throw e;
+    }
     if (!r.ok) { const e = new Error(await r.text().catch(() => "")); e.code = "api"; throw e; }
     const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;){
-      const {value, done} = await reader.read();
+      let chunk;
+      try { chunk = await reader.read(); }
+      catch(e){
+        if (e.name === "AbortError") throw e;
+        const err = new Error(""); err.code = "pc_drop"; err.secs = Math.round((Date.now()-started)/1000); err.got = produced; err.any = content.length > 0; throw err;
+      }
+      const {value, done} = chunk;
       if (done) break;
       buf += dec.decode(value, {stream:true});
       let nl;
