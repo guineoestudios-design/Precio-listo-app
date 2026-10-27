@@ -334,7 +334,7 @@ function renderItems(){
   $("#items").innerHTML = items.map(it => {
     const c = calc(it);
     return `<article class="item${it.revisar?" flag":""}" data-id="${it.id}">
-      <div class="top full"><input id="p${it.id}" data-k="producto" value="${esc(it.producto)}" aria-label="Producto" placeholder="Producto">${it.revisar?'<span class="chip">Revisar</span>':""}
+      <div class="top full"><input id="p${it.id}" data-k="producto" value="${esc(it.producto)}" aria-label="Producto" placeholder="Producto">${it.revisar?`<span class="chip">${it.costo ? "Revisar" : "Falta precio"}</span>`:""}
         <button class="icon ghost" data-del="${it.id}" aria-label="Quitar producto">✕</button></div>
       <div class="f"><label for="m${it.id}">Marca</label><input id="m${it.id}" data-k="marca" value="${esc(it.marca)}" placeholder="—"></div>
       <div class="f"><label for="c${it.id}">Categoría</label><select id="c${it.id}" data-k="categoria">${catOptions(it.categoria)}</select></div>
@@ -567,7 +567,13 @@ Reglas:
 - "costo_unitario": precio por unidad en pesos colombianos SIN IVA, ya aplicado cualquier descuento de la línea. Si solo hay total de línea, divide entre la cantidad. Número sin separadores de miles (ej. 12500, no "12.500").
 - "iva_pct": el % de IVA de esa línea (0, 5 o 19 normalmente). Si no se indica, 0.
 - "categoria": elige exactamente una de: ${JSON.stringify(cats)}.
-- No inventes productos. Si las fotos se repiten o se solapan, no dupliques líneas. Ignora subtotales, totales, retenciones y fletes.`;
+- No inventes productos. Si las fotos se repiten o se solapan, no dupliques líneas. Ignora subtotales, totales, retenciones y fletes.
+- La hoja puede estar girada o al revés: léela igual.
+- Hay números y marcas ESCRITOS A MANO con lapicero encima o al lado de la factura (precios de venta, chulos, círculos alrededor de la cantidad). IGNÓRALOS: usa solo lo impreso.
+- Descuentos por línea (columnas "Dcto1", "Dcto2", "% Desc", "Descuento"): aplícalos al costo unitario. Ej.: unitario 11140 con Dcto1 3 % → 10805,8. Si hay "PR.BRUTO" y "PR.NETO", usa el neto.
+- Si el IVA solo aparece en el total de la factura (ej. "IVA $93.142") y no por línea, pon "iva_pct": 19 en todos los productos gravados.
+- Si es una remisión SIN precios (solo cantidades), pon "costo_unitario": 0.
+- Números: en Colombia "12.500" es doce mil quinientos; "27,500.000" también es veintisiete mil quinientos (coma de miles y tres decimales). Revisa que cantidad × unitario ≈ total de la línea.`;
 }
 function parseJson(text){
   try { return JSON.parse(text); } catch(e){}
@@ -608,17 +614,25 @@ async function getOcr(){
 }
 // Escala de grises + corrección de sombras (divide por el fondo) + contraste. Conserva los grises: binarizar
 // a blanco/negro le hacía confundir 0 con 6 y 8 en fotos algo borrosas.
-async function prepForOcr(file){
+async function prepForOcr(file, rot = 0, maxLong = 2400){
   const bmp = await createImageBitmap(file, {imageOrientation:"from-image"});
-  const long = Math.max(bmp.width, bmp.height), k = Math.min(2, 2400 / long);
-  const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+  const long = Math.max(bmp.width, bmp.height), k = Math.min(2, maxLong / long);
+  const bw = Math.round(bmp.width * k), bh = Math.round(bmp.height * k);
+  const side = rot === 90 || rot === 270;
+  const w = side ? bh : bw, h = side ? bw : bh;
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   const ctx = c.getContext("2d", {willReadFrequently:true});
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.save(); ctx.translate(w/2, h/2); ctx.rotate(rot * Math.PI / 180);
+  ctx.drawImage(bmp, -bw/2, -bh/2, bw, bh); ctx.restore();
   const img = ctx.getImageData(0, 0, w, h), d = img.data, n = w*h;
   const g = new Float32Array(n);
-  for (let i = 0, j = 0; j < n; i += 4, j++) g[j] = .299*d[i] + .587*d[i+1] + .114*d[i+2];
+  for (let i = 0, j = 0; j < n; i += 4, j++){
+    const R = d[i], G = d[i+1], B = d[i+2], mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+    // Tinta de lapicero azul y sellos rojos: color fuerte → se borra (lo impreso es negro o gris)
+    if (mx - mn > 55 && (B > R + 25 && B > G + 5 || R > B + 45 && R > G + 25)) { g[j] = 255; continue; }
+    g[j] = .299*R + .587*G + .114*B;
+  }
   // Fondo = promedio local grande (integral image); el papel queda parejo aunque tenga sombra.
   const W1 = w + 1, I = new Float64Array(W1*(h+1));
   for (let y = 0; y < h; y++){ let row = 0; for (let x = 0; x < w; x++){ row += g[y*w+x]; I[(y+1)*W1+x+1] = I[y*W1+x+1] + row; } }
@@ -653,10 +667,27 @@ async function readWithPhone(say, isCancelled){
     if (isCancelled()) return null;
     const tag = photos.length > 1 ? ` (foto ${i+1} de ${photos.length})` : "";
     say(`Mejorando la imagen${tag}…`);
-    const canvas = await prepForOcr(photos[i]);
     ocrProgress = m => { if (m.status === "recognizing text") say(`Leyendo el texto${tag}… ${Math.round(m.progress*100)}%`); };
-    const {data} = await worker.recognize(canvas);
+    let {data} = await worker.recognize(await prepForOcr(photos[i]));
     ocrProgress = null;
+    // ¿La foto está de lado o al revés? Si casi no salen productos, probamos los otros giros en pequeño
+    const found = InvoiceParser.parseInvoice(data.text.split("\n"), settings.categorias).items.length;
+    if (found < 2 && !isCancelled()){
+      say(`Buscando la orientación de la hoja${tag}…`);
+      // A 1600 px la confianza del lector distingue bien la orientación (a menos resolución se equivoca)
+      let best = {rot:0, conf:(await worker.recognize(await prepForOcr(photos[i], 0, 1600))).data.confidence};
+      for (const rot of [90, 270, 180]){
+        if (isCancelled()) return null;
+        const conf = (await worker.recognize(await prepForOcr(photos[i], rot, 1600))).data.confidence;
+        if (conf > best.conf + 5) best = {rot, conf};
+        if (best.rot && best.conf >= 60) break;      // ya encontramos una orientación clara
+      }
+      if (best.rot){
+        ocrProgress = m => { if (m.status === "recognizing text") say(`Leyendo el texto${tag}… ${Math.round(m.progress*100)}%`); };
+        data = (await worker.recognize(await prepForOcr(photos[i], best.rot))).data;
+        ocrProgress = null;
+      }
+    }
     lines.push(...data.text.split("\n"));
   }
   const res = InvoiceParser.parseInvoice(lines, settings.categorias);
@@ -892,7 +923,7 @@ $("#readBtn").onclick = async () => {
     items = list.map(x => ({
       id: uid++, producto: String(x.producto || ""), marca: x.marca ? String(x.marca) : "",
       cantidad: num(x.cantidad) || 1, costo: Math.round(num(x.costo_unitario) * 100) / 100, iva: num(x.iva_pct),
-      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null, revisar: !!x.revisar
+      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null, revisar: !!x.revisar || !num(x.costo_unitario)
     }));
     isExample = false;
     renderInv(); renderItems();
