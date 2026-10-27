@@ -39,7 +39,7 @@ La clave sirve una sola vez y vence en unos días; si caduca, crea otra.
 - Mientras lee una factura, **deja la app abierta y la pantalla encendida**. Si se apaga o cambias de app, el celular corta la conexión y hay que volver a leer.
 - El PC debe estar **prendido y sin suspender**. Para evitar que se duerma: Configuración de Windows → Sistema → Inicio/apagado y suspensión → "Cuando está enchufado, suspender después de": **Nunca**.
 - Ollama arranca solo con Windows; no tienes que abrir nada.
-- Con este PC cada factura tarda de 1 a 3 minutos. La primera del día tarda un poco más porque el modelo se carga en memoria.
+- La primera factura después de prender el PC tarda unos 3 minutos más, porque la IA se carga en memoria. La app empieza a cargarla sola apenas la abres, así que ábrela unos minutos antes. Después queda cargada 8 horas.
 - Si el PC no responde, la app lo dice y lee con el lector del celular.
 
 ## Si algo falla
@@ -48,4 +48,4 @@ La clave sirve una sola vez y vence en unos días; si caduca, crea otra.
 | "No pude conectar con el PC" | Revisa que el PC esté prendido y que Tailscale esté activo en el celular y en el PC. |
 | "El PC rechazó la conexión" | Vuelve a ejecutar `instalar-pc.bat`. |
 | "El PC no tiene un modelo de visión" | Vuelve a ejecutar `instalar-pc.bat` (descarga el modelo). |
-| Tarda demasiado | Cierra programas pesados del PC mientras lee. En Ajustes puedes elegir el modelo `qwen3-vl:2b` (más rápido, algo menos preciso) si lo instalas con `ollama pull qwen3-vl:2b`. |
+| Tarda demasiado | Cierra programas pesados del PC mientras lee. En Ajustes puedes elegir el modelo `qwen3-vl:2b-instruct` (más rápido, algo menos preciso) si lo instalas con `ollama pull qwen3-vl:2b-instruct`. |

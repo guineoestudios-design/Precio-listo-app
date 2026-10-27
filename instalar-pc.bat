@@ -9,7 +9,7 @@ echo ============================================================
 echo.
 echo Esto va a:
 echo   1. Instalar Ollama (programa gratuito que corre la IA)
-echo   2. Descargar el modelo de vision qwen3-vl:4b (unos 3,3 GB)
+echo   2. Descargar el modelo de vision qwen3-vl:4b-instruct (unos 3,3 GB)
 echo   3. Instalar Tailscale para que el celular se conecte seguro
 echo.
 echo Necesitas internet. La descarga puede tardar 10 a 30 minutos.
@@ -50,11 +50,11 @@ rem Escuchar fuera de "localhost" (necesario para que Tailscale lo entregue al c
 setx OLLAMA_HOST "0.0.0.0" >nul
 rem Permitir que la app PrecioListo le hable a Ollama
 setx OLLAMA_ORIGINS "%APP_ORIGIN%" >nul
-rem Dejar el modelo cargado 30 minutos para que las siguientes facturas sean mas rapidas
-setx OLLAMA_KEEP_ALIVE "30m" >nul
+rem Dejar el modelo cargado 8 horas para que las siguientes facturas sean mas rapidas
+setx OLLAMA_KEEP_ALIVE "8h" >nul
 set "OLLAMA_HOST=0.0.0.0"
 set "OLLAMA_ORIGINS=%APP_ORIGIN%"
-set "OLLAMA_KEEP_ALIVE=30m"
+set "OLLAMA_KEEP_ALIVE=8h"
 taskkill /IM "ollama app.exe" /F >nul 2>nul
 taskkill /IM "ollama.exe" /F >nul 2>nul
 timeout /t 2 /nobreak >nul
@@ -65,7 +65,7 @@ echo Si Windows pregunta por el Firewall para Ollama, toca CANCELAR: no hace fal
 
 echo.
 echo --- Paso 3 de 5: Descargando el modelo de vision (3,3 GB) ---
-"%OLLAMA_EXE%" pull qwen3-vl:4b
+"%OLLAMA_EXE%" pull qwen3-vl:4b-instruct
 if errorlevel 1 (
   echo [!] La descarga fallo. Revisa el internet y vuelve a ejecutar este archivo; continua donde quedo.
   pause

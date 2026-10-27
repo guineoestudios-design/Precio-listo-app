@@ -682,7 +682,7 @@ async function pcModels(timeout = 4000){
 }
 function pickPcModel(names){
   if (settings.pcModel && names.includes(settings.pcModel)) return settings.pcModel;
-  const pref = [/qwen3-vl:4b/i, /qwen3-vl:2b/i, /qwen3-vl/i, /qwen2\.5-?vl/i, /minicpm-v/i, /gemma3/i, /llava/i];
+  const pref = [/qwen3-vl:4b-instruct/i, /qwen3-vl:2b-instruct/i, /qwen3-vl:4b/i, /qwen3-vl:2b/i, /qwen3-vl/i, /qwen2\.5-?vl/i, /minicpm-v/i, /gemma3/i, /llava/i];
   for (const re of pref){ const m = names.find(n => re.test(n)); if (m) return m; }
   return names[0];
 }
@@ -691,13 +691,46 @@ function fillPcModels(names){
   sel.innerHTML = `<option value="">Automático${names.length ? " (" + esc(pickPcModel(names)) + ")" : ""}</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
   sel.value = names.includes(settings.pcModel) ? settings.pcModel : "";
 }
+/* Cargar el modelo en memoria antes de leer. En este PC la primera carga tarda ~3 min sin enviar
+   nada por la conexión, y una conexión callada tanto tiempo se corta. Por eso pedimos la carga aparte
+   y vamos preguntando (/api/ps) hasta que esté lista. */
+const PC_KEEP = "8h";
+async function pcLoaded(model){
+  try {
+    const r = await fetch(pcBase() + "/api/ps", {cache:"no-store"});
+    if (!r.ok) return false;
+    const j = await r.json();
+    return (j.models || []).some(m => m.name === model || m.model === model);
+  } catch(e){ return false; }
+}
+let pcLoading = null;
+function pcStartLoad(model){
+  if (pcLoading) return;
+  pcLoading = fetch(pcBase() + "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({model, keep_alive: PC_KEEP})}).catch(() => {}).finally(() => { pcLoading = null; });
+}
+async function pcEnsureLoaded(model, say, signal){
+  if (await pcLoaded(model)) return;
+  const t0 = Date.now();
+  pcStartLoad(model);
+  while (Date.now() - t0 < 8*60*1000){
+    if (signal?.aborted) { const e = new Error("cancel"); e.name = "AbortError"; throw e; }
+    say(`El PC está cargando la IA en memoria… ${Math.round((Date.now()-t0)/1000)} s<br><small>Solo pasa la primera vez después de prender el PC (unos 3 min). No apagues la pantalla.</small>`);
+    await new Promise(ok => setTimeout(ok, 4000));
+    if (await pcLoaded(model)) return;
+    if (!pcLoading) pcStartLoad(model);   // si la petición de carga se cortó, la pedimos otra vez
+  }
+  const e = new Error("El PC tardó demasiado en cargar la IA."); e.code = "api"; throw e;
+}
+
 async function readWithPC(model, say, signal){
+  await pcEnsureLoaded(model, say, signal);
   const imgs = await Promise.all(photos.map(f => toJpegBase64(f, 1280)));
   const started = Date.now();
-  let produced = 0, content = "";
-  const tick = setInterval(() => say(`El PC está leyendo la factura con ${model}… ${Math.round((Date.now()-started)/1000)} s${produced ? ` · ${produced} productos` : ""}<br><small>Con este PC suele tardar 1 a 3 minutos. No apagues la pantalla ni cambies de app.</small>`), 1000);
+  let produced = 0, content = "", thinking = 0;
+  const tick = setInterval(() => say(`El PC está leyendo la factura con ${model}… ${Math.round((Date.now()-started)/1000)} s${produced ? ` · ${produced} productos` : thinking ? " · analizando la imagen" : ""}<br><small>Con este PC suele tardar 1 a 3 minutos. No apagues la pantalla ni cambies de app.</small>`), 1000);
   const send = async withThink => {
-    const body = {model, stream:true, format:"json", keep_alive:"30m", options:{temperature:0, num_ctx:8192},
+    const body = {model, stream:true, format:"json", keep_alive:PC_KEEP, options:{temperature:0, num_ctx:8192, num_predict:6000},
       messages:[{role:"user", content: buildPrompt(imgs.length), images: imgs}]};
     if (withThink) body.think = false;
     return fetch(pcBase() + "/api/chat", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body), signal});
@@ -731,6 +764,7 @@ async function readWithPC(model, say, signal){
         const j = JSON.parse(line);
         if (j.error) { const e = new Error(j.error); e.code = "api"; throw e; }
         content += j.message?.content || "";
+        thinking += (j.message?.thinking || "").length;
         produced = (content.match(/"producto"/g) || []).length;
       }
     }
@@ -792,6 +826,7 @@ async function refreshMethodLine(){
     if (seq !== methodLineSeq) return;
     fillPcModels(names);
     el.innerHTML = names.length ? `Se leerá con <b>la IA de tu PC</b> (${esc(pickPcModel(names))}).` : "El PC responde pero no tiene modelo de visión. Ejecuta el instalador del PC.";
+    if (names.length) { const mdl = pickPcModel(names); if (!(await pcLoaded(mdl))) pcStartLoad(mdl); }   // la va cargando mientras tomas la foto
   } catch(e){
     if (seq !== methodLineSeq) return;
     el.innerHTML = settings.metodo === "pc" ? `<span style="color:var(--danger)">No encuentro el PC.</span> Revisa que esté prendido y con Tailscale activo aquí.` : "PC no disponible: se leerá con <b>el lector del celular</b>.";
