@@ -27,20 +27,22 @@ El dueño no programa: habla en español sencillo, prefiere pasos cortos y concr
 - Portátil **Ryzen 7 4700U, 16 GB RAM, gráficos integrados**, Windows 11. Nombre en Tailscale: `ferreteria-mr` → `https://ferreteria-mr.tail444b1f.ts.net`.
 - Ollama 0.40.x con `OLLAMA_HOST=0.0.0.0`, `OLLAMA_ORIGINS=https://guineoestudios-design.github.io`, `OLLAMA_KEEP_ALIVE=8h`.
 - Firewall: se recomienda **no** permitir Ollama (Tailscale llega por localhost); así nadie más en el wifi lo usa.
-- Hay otro PC de escritorio posible: **Ryzen 5 5600G** (debería ir más rápido; no medido).
+- Hay otro PC de escritorio: **Ryzen 5 5600G, 16 GB**, Windows 11, nombre de equipo `FERRETERIA_MR`, usuario `pcfer`. Tiene Ollama 0.40.11 con `qwen3-vl:4b-instruct` y `qwen3-vl:2b-instruct`, y Git instalado. El repo está clonado en `D:\factura lista\Precio-listo-app`. No tiene Node ni Python.
 
 ## Lo que ya aprendimos
 - **Primera carga del modelo ≈ 3 min** en este PC. Durante ese tiempo la conexión no envía nada y se cortaba ("network error"). Solución ya hecha: la app precarga el modelo al abrirse y, al leer, sondea `/api/ps` hasta que esté cargado antes de mandar la foto.
-- `qwen3-vl:4b` (la etiqueta por defecto) es la versión que **piensa** ("Thinking...") y tardó más de 6 min con una factura. La app prefiere `qwen3-vl:4b-instruct` si está instalado. **Pendiente confirmar** que esa etiqueta existe en Ollama y medir su tiempo real.
+- `qwen3-vl:4b` (la etiqueta por defecto) es la versión que **piensa** ("Thinking...") y tardó más de 6 min con una factura. La app prefiere `qwen3-vl:4b-instruct`: la etiqueta existe y se midió en el 5600G (27-oct-2026) con una factura de prueba de 12 productos y la misma petición de la app: **3 min 17 s** (41 s leyendo la imagen, 152 s escribiendo ~900 tokens, 100 % CPU). Todos los números salieron bien.
+- `qwen3-vl:2b-instruct` en el mismo PC: **2 min**, pero leyó todos los precios mil veces menores (`18.45` en vez de `18450`). **No usarlo.**
 - Si la pantalla del celular se apaga o se cambia de app, Android corta la conexión: la app pide *wake lock* y avisa con un mensaje claro.
 - El usuario es administrador del PC.
 
 ## Pendientes (en orden)
-1. En el PC: `ollama pull qwen3-vl:4b-instruct` (o la etiqueta instruct correcta), medir cuánto tarda una factura real y, si sigue lento, probar `qwen3-vl:2b-instruct` o el PC con 5600G.
-2. **Categorías de ferretería** por defecto en `DEFAULT_SETTINGS.categorias` (`index.html`) y palabras clave en `CONCEPTS` (`parser.js`); hoy están las de tienda de abarrotes. Ejemplo: Tubería y PVC, Tornillería y fijaciones, Eléctricos, Pinturas, Herramientas, Cemento y obra, Plomería, Otros. **Pregúntale al usuario sus categorías y porcentajes reales.**
-3. **Calibrar `parser.js` con facturas reales** de sus distribuidores (el usuario va a mandar fotos). Sus facturas usan abreviaturas como `NIZ BCO PVC 5.95MTR`, `ZINC DR BL*250`, `3UD.ZINC BL*250`, con códigos tipo `T 13227-0108`. Agregar marcas de ferretería (Pavco, Gerfor, Argos, Corona, Pintuco, Truper, Stanley, etc.).
-4. Historial de git: los 4 commits más antiguos tienen el correo personal del usuario. Reescribirlos requiere `git push --force` y **el usuario aún no lo ha autorizado**. No lo hagas sin su permiso explícito.
+1. Medir el 4b-instruct con una **foto real** tomada con el celular (la de prueba era una imagen limpia generada en el PC) y decidir qué PC queda de servidor. Si hay que acelerar: la mayor parte del tiempo es escribir la respuesta, así que pedir un JSON más corto ayudaría más que cambiar de modelo.
+2. **Calibrar `parser.js` con facturas reales** de sus distribuidores (el usuario va a mandar fotos). Ya entiende códigos tipo `T 13227-0108`, medidas `5.95MTR`, `6X1"`, `1/2"`, `9W`, `110V` y las marcas de ferretería (lista `BRANDS`). Falta confirmar con el usuario qué son `NIZ` y `ZINC DR BL*250` / `3UD.ZINC BL*250` (hoy caen en "Cemento y obra" por la palabra *zinc*).
+3. Historial de git: los 4 commits más antiguos tienen el correo personal del usuario. Reescribirlos requiere `git push --force` y **el usuario aún no lo ha autorizado**. No lo hagas sin su permiso explícito.
+
+Hecho (27-oct-2026): categorías de ferretería por defecto, todas al **30 %** (lo eligió el usuario): Tubería y PVC, Tornillería y fijaciones, Eléctricos, Pinturas, Herramientas, Cemento y obra, Plomería, Otros. Los celulares que tenían guardadas las categorías viejas de abarrotes sin cambios pasan solos a las nuevas (`OLD_CATS` en `index.html`).
 
 ## Pruebas
 - Servir la carpeta (`python -m http.server`) y abrirla en un navegador. Para el lector del celular sirve una foto de factura; para la IA del PC se puede simular Ollama con respuestas falsas.
-- `node -e "const P=require('./parser.js'); console.log(P.parseInvoice(lineas, categorias))"` para probar el algoritmo.
+- `node -e "const P=require('./parser.js'); console.log(P.parseInvoice(lineas, categorias))"` para probar el algoritmo. En el 5600G no hay Node ni Python: servir con un `HttpListener` de PowerShell y probar `InvoiceParser` desde la consola del navegador.

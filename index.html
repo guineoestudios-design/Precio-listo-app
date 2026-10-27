@@ -287,20 +287,24 @@ const store = {
 const DEFAULT_SETTINGS = {
   negocio:"", modo:"costo", redondeo:100, incluirIva:true, modelo:"auto", metodo:"auto", pcUrl:"", pcModel:"",
   categorias:[
-    {nombre:"Abarrotes",margen:20},{nombre:"Bebidas",margen:25},{nombre:"Lácteos y refrigerados",margen:18},
-    {nombre:"Aseo y hogar",margen:30},{nombre:"Snacks y dulces",margen:35},{nombre:"Licores",margen:28},{nombre:"Otros",margen:25}
+    {nombre:"Tubería y PVC",margen:30},{nombre:"Tornillería y fijaciones",margen:30},{nombre:"Eléctricos",margen:30},
+    {nombre:"Pinturas",margen:30},{nombre:"Herramientas",margen:30},{nombre:"Cemento y obra",margen:30},
+    {nombre:"Plomería",margen:30},{nombre:"Otros",margen:30}
   ]
 };
 let settings = {...structuredClone(DEFAULT_SETTINGS), ...(store.get("pl_settings") || {})};
+// Celulares que guardaron las categorías de abarrotes de las primeras versiones y nunca las cambiaron: pasan a las de ferretería.
+const OLD_CATS = "Abarrotes|Bebidas|Lácteos y refrigerados|Aseo y hogar|Snacks y dulces|Licores|Otros";
+if (settings.categorias.map(c => c.nombre).join("|") === OLD_CATS) settings.categorias = structuredClone(DEFAULT_SETTINGS.categorias);
 let apiKey = store.get("pl_key") || "";
 let photos = [], uid = 1, isExample = true;
-let inv = {proveedor:"Distribuidora El Surtidor S.A.S.", numero:"FE-20481", fecha:"2026-10-24"};
+let inv = {proveedor:"Distribuidora Ferretera del Valle S.A.S.", numero:"FE-20481", fecha:"2026-10-24"};
 let items = [
-  {producto:"Arroz blanco x 500 g", marca:"Diana", cantidad:24, costo:2350, iva:0, categoria:"Abarrotes"},
-  {producto:"Aceite de girasol x 1 L", marca:"Premier", cantidad:12, costo:9800, iva:19, categoria:"Abarrotes"},
-  {producto:"Gaseosa 1,5 L", marca:"Postobón", cantidad:18, costo:3100, iva:19, categoria:"Bebidas"},
-  {producto:"Leche entera bolsa 1,1 L", marca:"Alquería", cantidad:20, costo:3650, iva:0, categoria:"Lácteos y refrigerados"},
-  {producto:"Detergente en polvo x 1 kg", marca:"Fab", cantidad:6, costo:11200, iva:19, categoria:"Aseo y hogar"},
+  {producto:"Tubo PVC sanitario 2\" x 6 m", marca:"Pavco", cantidad:6, costo:32900, iva:19, categoria:"Tubería y PVC"},
+  {producto:"Tornillo drywall 6 x 1\" x 100 und", marca:"", cantidad:5, costo:9800, iva:19, categoria:"Tornillería y fijaciones"},
+  {producto:"Cable THHN 12 AWG rojo (metro)", marca:"Centelsa", cantidad:50, costo:2380, iva:19, categoria:"Eléctricos"},
+  {producto:"Vinilo Viniltex blanco galón", marca:"Pintuco", cantidad:2, costo:89900, iva:19, categoria:"Pinturas"},
+  {producto:"Cemento gris x 50 kg", marca:"Argos", cantidad:10, costo:31500, iva:19, categoria:"Cemento y obra"},
 ].map(x => ({...x, id:uid++, margen:null}));
 
 const cop = n => "$" + Math.round(n).toLocaleString("es-CO");
@@ -552,13 +556,13 @@ function errText(e){
 }
 function buildPrompt(n){
   const cats = settings.categorias.map(c => c.nombre);
-  return `Las imágenes son ${n > 1 ? "partes o páginas de UNA misma" : "una"} factura de compra de un distribuidor a una tienda en Colombia.
+  return `Las imágenes son ${n > 1 ? "partes o páginas de UNA misma" : "una"} factura de compra de un distribuidor a una ferretería en Colombia.
 Extrae TODOS los productos que aparecen. Responde SOLO con un objeto JSON con esta forma exacta:
 {"proveedor": string|null, "numero": string|null, "fecha": "AAAA-MM-DD"|null,
  "items": [{"producto": string, "marca": string|null, "cantidad": number, "costo_unitario": number, "iva_pct": number, "categoria": string}]}
 Reglas:
-- "producto": nombre claro con presentación/tamaño (ej. "Arroz blanco x 500 g"). Corrige abreviaturas obvias.
-- "marca": la marca si aparece o es evidente por el nombre; si no, null.
+- "producto": nombre claro con medida/presentación, con las abreviaturas escritas completas (ej. "TUBO PVC SAN 2" 6M" → "Tubo PVC sanitario 2" x 6 m", "BCO" → "blanco", "GL" → "galón"). No dejes el código del producto en el nombre.
+- "marca": la marca del fabricante si aparece o es evidente (Pavco, Gerfor, Argos, Pintuco, Truper, Stanley…); si no, null. Una línea de producto como "Viniltex" o un tipo como "drywall" no es la marca.
 - "cantidad": unidades compradas. Si viene por caja/paca y se indica cuántas unidades trae, usa unidades sueltas y ajusta el costo por unidad.
 - "costo_unitario": precio por unidad en pesos colombianos SIN IVA, ya aplicado cualquier descuento de la línea. Si solo hay total de línea, divide entre la cantidad. Número sin separadores de miles (ej. 12500, no "12.500").
 - "iva_pct": el % de IVA de esa línea (0, 5 o 19 normalmente). Si no se indica, 0.

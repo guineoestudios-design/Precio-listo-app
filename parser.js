@@ -10,30 +10,23 @@
   const NUM_RE = /^\$?-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?$|^\$?-?\d+(?:[.,]\d{1,2})?$/;
 
   const BRANDS = [
-    "Diana","Roa","Florhuila","Arroz Blanquita","Supremo","Doria","Comarrico","La Muñeca","Monticello","Premier","Gourmet","Oleocali","Olivetto",
-    "Riopaila","Manuelita","Incauca","Providencia","Refisal","Fruco","San Jorge","Respin","Knorr","Maggi","Badia","El Rey","Zenú","Ranchera","Rica",
-    "Van Camp's","Van Camps","Atún Isabel","Isabel","Sello Rojo","Águila Roja","Colcafé","Nescafé","Juan Valdez","Corona","Luker","Chocolate Corona","Quaker",
-    "Kellogg's","Nestlé","Milo","Alpina","Colanta","Alquería","Parmalat","Algarra","Klim","La Lechera","Bimbo","Ramo","Noel","Colombina","Nutresa",
-    "Jet","Jumbo","Super Ricas","Margarita","Frito Lay","Doritos","Cheetos","De Todito","Choclitos","Natuchips","Yupi","Gol","Chocorramo","Festival",
-    "Saltín","Ducales","Tosh","Oreo","Trululú","Bon Bon Bum","Chocolatina Jet","Coca-Cola","Coca Cola","Postobón","Pepsi","Sprite","Big Cola","Quatro",
-    "Colombiana","Manzana Postobón","Pony Malta","Hit","Tutti Frutti","Cifrut","Gatorade","Powerade","Brisa","Cristal","Manantial","Speed Max",
-    "Vive 100","Red Bull","Bretaña","Águila","Poker","Club Colombia","Costeña","Pilsen","Corona Extra","Budweiser","Aguardiente Antioqueño",
-    "Néctar","Ron Medellín","Ron Viejo de Caldas","Old Parr","Fab","Ariel","Dersa","Rindex","Ace","Axion","Lava","Las Llaves","Bon Bril","Fassi",
-    "Familia","Scott","Rosal","Nube","Suavitel","Clorox","Límpido","Blancox","Fabuloso","Colgate","Fortident","Protex","Palmolive","Rexona",
-    "Lux","Johnson's","Savital","Sedal","Pantene","Head & Shoulders","Konzil","Nosotras","Kotex","Huggies","Pequeñín","Winny","Gillette","Speed Stick",
-    "Mimo","Purina","Dog Chow","Chunky","Ringo","Agrocampo"
+    "Pavco","Gerfor","Durman","Colmena","Argos","Cemex","Holcim","Ultracem","Sika","Pegacor","Corona","Eternit","Grival","Fanaloza",
+    "Pintuco","Sapolin","Bler","Tito Pabón","Abracol","3M","Truper","Pretul","Stanley","Bellota","Black & Decker","DeWalt","Bosch","Makita",
+    "Irwin","Uyustools","Fischer","Leviton","Schneider","Legrand","Centelsa","Procables","Phelps Dodge","Sylvania","Philips","Yale","Segurex"
   ];
   const BRAND_RE = BRANDS
     .map(b => ({b, re: new RegExp("(^|[^\\p{L}])" + norm(b).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*") + "(?=$|[^\\p{L}])", "iu")}))
     .sort((a, b) => b.b.length - a.b.length);
 
   const CONCEPTS = [
-    {k:"licores",  match:/licor|cerveza|trago|vino/i, words:/\b(cerveza|aguardiente|ron|vino|whisky|vodka|tequila|brandy|ginebra|lata\s+aguila|pola|cerv)\b|aguila|poker|club colombia|costena|pilsen|antioqueno/},
-    {k:"bebidas",  match:/bebida|gaseosa|refresco/i, words:/\b(gaseosa|agua|jugo|refresco|malta|cola|energizante|energetica|bebida|te\s+helado|soda|hidratante|limonada|kola|naranjada)\b|postobon|coca|pepsi|sprite|pony|gatorade|powerade|brisa|cristal|manantial|speed|vive 100|red bull|cifrut|tutti|bretana|quatro/},
-    {k:"lacteos",  match:/l[aá]cteo|refriger|lacteo|fr[ií]o/i, words:/\b(leche|queso|yogur|yogurt|kumis|kumi|mantequilla|margarina|crema\s+de\s+leche|arequipe|avena\s+liquida|huevo|huevos|salchicha|jamon|mortadela|chorizo|cuajada|kefir)\b|alpina|colanta|alqueria|parmalat|algarra/},
-    {k:"aseo",     match:/aseo|limpieza|hogar|higiene|cuidado/i, words:/\b(detergente|jabon|papel\s+higienico|higienico|cloro|blanqueador|lavaloza|suavizante|shampoo|champu|crema\s+dental|dental|toalla|toallas|panal|panales|desodorante|esponja|limpiador|ambientador|servilleta|servilletas|cepillo|afeitar|rinse|acondicionador|pañal|pañales|lavaplatos|desinfectante|insecticida|bolsas?\s+basura)\b|fab|ariel|dersa|rindex|axion|familia|scott|rosal|suavitel|clorox|limpido|colgate|protex|palmolive|rexona|savital|sedal|pantene|nosotras|kotex|huggies|pequenin|winny|bon bril/},
-    {k:"snacks",   match:/snack|dulce|golosina|mecato|confit/i, words:/\b(papas|papa\s+frita|galleta|galletas|chocolatina|dulce|dulces|chicle|chicles|mani|ponque|gomitas|bombon|bombones|caramelo|caramelos|chito|chitos|rosquitas|tostacos|platanitos|wafer|brownie|barra|bocadillo|mecato|snack|gelatina|helado|paleta)\b|margarita|super ricas|de todito|choclitos|doritos|cheetos|jet|jumbo|gol|chocorramo|festival|saltin|ducales|tosh|oreo|trululu|bon bon bum|yupi|natuchips/},
-    {k:"abarrotes",match:/abarrote|grano|despensa|v[ií]vere|mercado|alimento/i, words:/\b(arroz|aceite|azucar|sal|frijol|frijoles|lenteja|lentejas|garbanzo|arveja|pasta|pastas|spaghetti|espagueti|harina|atun|sardina|cafe|chocolate|panela|avena|maiz|arepa|arepas|pan|salsa|mayonesa|mostaza|vinagre|caldo|cubo|cubos|condimento|comino|color|levadura|maizena|fecula|cereal|galleta\s+de\s+sal|enlatado|mermelada|miel|bocadillo)\b|diana|roa|florhuila|doria|comarrico|premier|oleocali|riopaila|manuelita|incauca|fruco|knorr|maggi|sello rojo|aguila roja|colcafe|nescafe|corona|luker|quaker|zenu|van camp/},
+    // El orden importa: gana el primer concepto que encaje ("tubo conduit" es eléctrico, "tornillo drywall" es tornillería, "llave inglesa" es herramienta).
+    {k:"electricos",  match:/el[eé]ctric|electr|ilumin/i, words:/\b(cable|cables|thhn|thw|awg|duplex|encauchetado|alambre\s+(?:de\s+)?cobre|toma|tomas|tomacorriente|interruptor|suiche|switch|breaker|taco|tacos|bombillo|bombillos|bombilla|led|lampara|reflector|roseta|plafon|clavija|enchufe|extension|multitoma|conduit|emt|caja\s+(?:octagonal|rectangular)|cinta\s+aislante|aislante|contactor|timbre|fotocelda|leviton|schneider|legrand|centelsa|procables|phelps|sylvania|philips)\b/},
+    {k:"pinturas",    match:/pintur/i, words:/\b(pintura|pinturas|vinilo|viniltex|pintulux|koraza|esmalte|anticorrosivo|laca|thinner|tiner|varsol|barniz|sellador|estuco|brocha|brochas|rodillo|rodillos|lija|lijas|aerosol|pintuco|sapolin|bler|abracol)\b/},
+    {k:"tornilleria", match:/tornill|fijaci|ferreter/i, words:/\b(tornillo|tornillos|chazo|chazos|puntilla|puntillas|clavo|clavos|tuerca|tuercas|arandela|arandelas|perno|pernos|esparrago|esparragos|remache|remaches|ancla|anclas|anclaje|grapa|grapas|bisagra|bisagras|fischer)\b/},
+    {k:"herramientas",match:/herramient/i, words:/\b(martillo|alicate|alicates|destornillador|atornillador|llave\s+(?:inglesa|expansiva|mixta|de\s+tubo|boca|allen)|flexometro|cinta\s+metrica|nivel|serrucho|segueta|taladro|pulidora|esmeril|broca|brocas|pala|palin|carretilla|machete|pica|pinza|pinzas|cincel|espatula|llana|palustre|disco|discos|tijera|cortafrio|escalera|truper|pretul|stanley|bellota|dewalt|bosch|makita|irwin|uyustools)\b|black\s*&?\s*decker/},
+    {k:"plomeria",    match:/plomer|grifer|sanitar|hidr[aá]ul/i, words:/\b(llave|llaves|grifo|griferia|mezclador|sifon|lavamanos|lavaplatos|lavadero|ducha|regadera|flotador|valvula|registro|teflon|acople|manguera|cheque|desague|rejilla|grival|fanaloza)\b/},
+    {k:"tuberia",     match:/tuber|pvc/i, words:/\b(tubo|tubos|tuberia|pvc|cpvc|codo|codos|tee|yee|niple|niples|union|universal|adaptador|adaptadores|buje|bujes|reduccion|tapon|tapones|soldadura\s+(?:pvc|liquida)|pavco|gerfor|durman|colmena)\b/},
+    {k:"obra",        match:/cement|obra|construc/i, words:/\b(cemento|concreto|mortero|arena|gravilla|triturado|ladrillo|ladrillos|bloque|bloques|varilla|varillas|hierro|malla|alambre|teja|tejas|zinc|eternit|drywall|superboard|pegante|pegacor|boquilla|impermeabilizante|yeso|cal|argos|cemex|holcim|ultracem|sika)\b/},
   ];
 
   function norm(s){ return String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
@@ -95,11 +88,13 @@
     // Una palabra de unidad pegada al final (UND, KG) no es parte del nombre
     while (a > 0 && /^\d+[a-z]*$/i.test(toks[a-1]) && UNIT_AFTER.test(toks[a])) a--; // "500 g" al inicio
     // Extiende el nombre sobre la presentación: "X 500GR", "1.5L", "330 ML", "X 12 UND"
-    const SIZE = /^\d+(?:[.,]\d+)?(g|gr|grs|kg|ml|cc|l|lt|lts|oz|und|un|cm|mt|m)\.?$/i;
+    const SIZE = /^\d+(?:[.,]\d+)?(g|gr|grs|kg|ml|cc|l|lt|lts|oz|und|un|cm|mm|mt|mtr|mtrs|mts|m|gl|gal|w|v)\.?$/i;
+    // Medidas de ferretería: 6X1", 1/2", 3/8X2"
+    const DIM = /^\d+(?:[.,/]\d+)*(?:x\d+(?:[.,/]\d+)*)+["']*$|^\d+(?:[.,/]\d+)*["']+$/i;
     for (;;){
       const t = toks[b+1], t2 = toks[b+2];
       if (t == null) break;
-      if (/^x$/i.test(t) || SIZE.test(t) || UNIT_AFTER.test(t)) { b++; continue; }
+      if (/^x$/i.test(t) || SIZE.test(t) || DIM.test(t) || UNIT_AFTER.test(t)) { b++; continue; }
       if (/^\d+(?:[.,]\d+)?$/.test(t) && t2 != null && UNIT_AFTER.test(t2) && !/^x$/i.test(t2)) { b += 2; continue; }
       if (/^x\d+/i.test(t)) { b++; continue; }
       break;
