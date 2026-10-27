@@ -17,6 +17,17 @@ Con esto el celular le manda la foto de la factura al PC, y el PC la lee con una
 
 Si Windows pregunta por el **Firewall** de Ollama, permite **Redes privadas**.
 
+## Instalar en un PC donde no quieres iniciar sesión (por ejemplo, el del trabajo)
+No necesitas cuentas en ese PC: Ollama y el modelo no piden cuenta, y Tailscale se conecta con una clave de acceso que creas desde tu celular.
+1. **En tu celular**, abre <https://login.tailscale.com/admin/settings/keys> (ya con tu sesión de Tailscale) → **Generate auth key**. Deja *Reusable* apagado y toca **Generate**. Copia la clave (empieza con `tskey-auth-`).
+2. Mándate por **WhatsApp** (a ti mismo) la clave y este enlace: <https://github.com/guineoestudios-design/Precio-listo-app/raw/main/instalar-pc.bat>
+3. **En el PC**, abre WhatsApp Web, toca el enlace para descargar el instalador y ejecútalo.
+4. Cuando pida **Clave de Tailscale**, pega la clave (clic derecho) y presiona Enter.
+5. Si es la primera vez que usas Tailscale, activa HTTPS desde el celular: <https://login.tailscale.com/admin/dns> → **Enable HTTPS**.
+6. Al final copia la dirección que muestra y pégala en PrecioListo (Ajustes → Dirección del PC).
+
+La clave sirve una sola vez y vence en unos días; si caduca, crea otra.
+
 ## 2. En cada celular
 1. Instala la app **Tailscale** (Play Store / App Store) e inicia sesión con la misma cuenta.
 2. Deja Tailscale **activado**.

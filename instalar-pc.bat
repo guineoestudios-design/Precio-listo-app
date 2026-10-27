@@ -85,11 +85,21 @@ if not exist "%TS_EXE%" (
   exit /b 1
 )
 echo.
-echo Se abrira el navegador para iniciar sesion en Tailscale.
-echo Usa la MISMA cuenta (por ejemplo tu Google) que vas a usar en los celulares.
-"%TS_EXE%" up
+echo Si creaste una "clave de acceso" de Tailscale en tu celular, pegala aqui
+echo (clic derecho para pegar) y presiona Enter. Asi NO tienes que iniciar sesion en este PC.
+echo Si no tienes clave, solo presiona Enter para iniciar sesion en el navegador.
+set "TSKEY="
+set /p "TSKEY=Clave de Tailscale: "
+if defined TSKEY (
+  "%TS_EXE%" up --authkey=%TSKEY% --unattended
+) else (
+  echo Se abrira el navegador para iniciar sesion en Tailscale.
+  echo Usa la MISMA cuenta que vas a usar en los celulares.
+  "%TS_EXE%" up --unattended
+)
 if errorlevel 1 (
-  echo [!] No se completo el inicio de sesion en Tailscale. Vuelve a ejecutar este archivo.
+  echo [!] No se pudo conectar Tailscale. Si usaste una clave, puede que haya vencido o ya se haya usado:
+  echo     crea una nueva en https://login.tailscale.com/admin/settings/keys y vuelve a ejecutar este archivo.
   pause
   exit /b 1
 )
