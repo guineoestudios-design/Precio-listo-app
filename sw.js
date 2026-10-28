@@ -1,6 +1,6 @@
 // PrecioListo — guarda la app en el celular para que abra rápido y sin internet.
 // El lector del celular funciona sin internet; la IA del PC necesita Tailscale y Gemini necesita internet.
-const CACHE = "preciolisto-v8";
+const CACHE = "preciolisto-v9";
 const FILES = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",

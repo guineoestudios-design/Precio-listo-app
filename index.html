@@ -916,14 +916,21 @@ $("#readBtn").onclick = async () => {
     else data = await readWithPhone(say, () => cancelled);
     if (cancelled || !data) return;
 
-    const cats = settings.categorias.map(c => c.nombre);
+    const cats = settings.categorias.map(c => c.nombre), last = cats[cats.length-1] || "Otros";
+    // Si la IA no eligió una categoría válida (o la dejó en "Otros"), se usan las palabras clave del lector.
+    const pickCat = x => {
+      const ai = cats.includes(x.categoria) ? x.categoria : "";
+      if (ai && ai !== last) return ai;
+      try { return InvoiceParser.pickCategory(String(x.producto || ""), String(x.marca || ""), settings.categorias) || ai || last; }
+      catch(_) { return ai || last; }
+    };
     const list = Array.isArray(data?.items) ? data.items : [];
     if (!list.length) { const e = new Error(""); e.code = via === "celular" ? "empty_phone" : "empty"; throw e; }
     inv = {proveedor: data.proveedor || "", numero: data.numero || "", fecha: data.fecha || ""};
     items = list.map(x => ({
       id: uid++, producto: String(x.producto || ""), marca: x.marca ? String(x.marca) : "",
       cantidad: num(x.cantidad) || 1, costo: Math.round(num(x.costo_unitario) * 100) / 100, iva: num(x.iva_pct),
-      categoria: cats.includes(x.categoria) ? x.categoria : (cats[cats.length-1] || "Otros"), margen: null, revisar: !!x.revisar || !num(x.costo_unitario)
+      categoria: pickCat(x), margen: null, revisar: !!x.revisar || !num(x.costo_unitario)
     }));
     isExample = false;
     renderInv(); renderItems();
