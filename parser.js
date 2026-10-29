@@ -67,13 +67,14 @@
                herraje griflex`),
       brands:W("grival fanaloza corona rioplast")},
     {k:"tuberia",     match:/tuber|pvc/i,
+      first:W("pegantes?_(?:para_)?pvc limpiador_(?:para_)?pvc"),
       words:W(`tubos? tuberia pvc cpvc codos? tee yee ye niples? union(?:es)? universal adaptador(?:es)? bujes? reduccion tapon(?:es)?
                soldadura_(?:pvc|liquida)`),
       brands:W("pavco gerfor durman colmena tubosa")},
     {k:"obra",        match:/cement|obra|construc/i,
       words:W(`cemento concreto mortero arena gravilla triturado ladrillos? bloques? varillas? hierro malla alambre tejas? zinc eternit
                drywall superboard pegacor boquilla yeso cal fragua ceramic[oa] acronal esquinero angulos? platina perfil corrugad\\w*
-               puas polisombra construccion laminas? estructural`),
+               puas polisombra construccion laminas? estructural pegantes? megapega pega_?cer\\w* concolor`),
       brands:W("argos cemex holcim ultracem eterna")},
   ];
 
@@ -545,10 +546,53 @@
       learn: best ? {d1: best.d1, r: best.r, ivaLine: iva, qdec: best.qdec, joined: best.joined} : null};
   }
 
+  // Proveedores habituales de la ferretería, con el nombre que ya tienen en su sistema POS (así el POS no crea
+  // un proveedor repetido). Lo que el usuario corrija a mano en la app se recuerda por NIT y manda sobre esto.
+  const KNOWN_SUPPLIERS = [
+    [/\bmercadeo\b/i, "mercadeo"],
+    [/\bla\s+superior\b|ferreteros\s+la\s+sup/i, "la superior"],
+    [/ferredistarco|ferre\s*distarco/i, "ferredistarco"],
+    [/\bw[uü]rth\b/i, "wurth"],
+    [/\bsidoc\b|sider[uú]rgica\s+de\s+occidente/i, "sidoc"],
+    [/ferroplast/i, "ferroplast"],
+    [/distribuciones\s+aro\b/i, "aro"],
+    [/\bccd\b|construyendo[\s\S]{0,80}?\bjuntos\b/i, "ccd"],
+  ];
+  const supplierName = s => { const t = String(s || "").replace(/\s+/g, " "); for (const [re, name] of KNOWN_SUPPLIERS) if (re.test(t)) return name; return null; };
+  // NIT sin puntos ni dígito de verificación: "900.145.983-2", "9001459832" → "900145983"
+  function nitKey(s){
+    let t = String(s || "").replace(/[\s.,]/g, "");
+    const m = t.match(/^(\d{6,10})(?:-(\d))?$/); if (!m) return "";
+    t = m[1];
+    if (!m[2] && t.length === 10 && /^[89]/.test(t)) t = t.slice(0, 9);
+    return t;
+  }
+  // Limpia una línea candidata a nombre del proveedor: "e e*. SIDERURGICA DE OCCIDENTE SAS [REMISIÓN —]" → "SIDERURGICA DE OCCIDENTE SAS"
+  function cleanSupplier(l){
+    let s = String(l).split(/\s[|\[—–]|[|\[]|\s{3,}|\b(?:nit|n\.i\.t|factura|remisi[oó]n|cotizaci[oó]n|concesi[oó]n|fecha|tel[eé]?f?o?n?o?s?|direcci[oó]n|no\.\s?\d|nro|n[°º])\b/i)[0];
+    const suf = s.match(/^(.*?\b(?:s\.?\s?a\.?\s?,?\s?s\.?|ltda\.?|s\.\s?a\.|e\.\s?u\.)(?=\s|$))/i);
+    if (suf) s = suf[1];
+    // Ni direcciones, ni ciudades, ni títulos de la tabla, ni fechas escritas: eso no es el nombre del proveedor
+    if (/colombia|valle\s+del\s+cauca|\bcali\b|\bbarrio\b|\bcarrera\b|\bcalle\b|\b(?:cr|cra|cl|kr|av)\.?\s?\d|\bkm\s?\d|referencia|descripci|cantidad|\bvalor\b|precio|c[oó]digo|\bitem|\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b|aceptaci|^\W*remisi/i.test(s)) return "";
+    // Una palabra con demasiadas I/J intercaladas es letra grande mal leída ("EJEIRIRIE", "TAIRICION")
+    const garbled = t => letters(t) >= 5 && ((t.match(/[ijl1|]/gi) || []).length / letters(t) >= 0.3);
+    const ok = t => letters(t) >= 3 && /[aeiouáéíóú]/i.test(t) && !/[|!\])(]/.test(t) && !/\p{Lu}\p{Ll}+\p{Lu}/u.test(t) && !garbled(t)
+      || /^(s\.?a\.?s\.?|ltda\.?|y|de|del|la|el|&)$/i.test(t) || /^\p{Lu}{2,4}$/u.test(t);
+    const toks = s.replace(/[“”"'*_~=>]+/g, " ").trim().split(/\s+/).filter(Boolean);
+    while (toks.length && !(ok(toks[0]) && letters(toks[0]) >= 3)) toks.shift();
+    while (toks.length && !ok(toks[toks.length - 1])) toks.pop();
+    const out = toks.join(" ").replace(/(?<!\b\p{L})[,;:.\-–—]+$/u, "").trim();   // "S.A.S." conserva su punto
+    const words = toks.filter(t => letters(t) >= 3);
+    // basura del OCR: pocas letras o muchas fichas raras
+    if (letters(out) < 6 || !words.length || words.filter(ok).length / words.length < 0.75) return "";
+    return out.slice(0, 60);
+  }
+
   function parseHeader(lines){
     const text = lines.join("\n");
-    let numero = null, fecha = null, proveedor = null;
-    const mN = text.match(/(?:factura|fact\.?|fe\b|remisi[oó]n|pedido)[^\n\d]{0,30}?(?:n[°ºo.]*|#|:)?\s*([A-Z]{1,5}[-\s]?\d{2,}|\d{3,})/i);
+    let numero = null, fecha = null, proveedor = null, nit = null;
+    const mN = text.match(/(?:factura|fact\.?|fe\b|remisi[oó]n|pedido|concesi[oó]n|cotizaci[oó]n|cuenta\s+de\s+cobro|documento)[^\n\d]{0,30}?(?:n[°ºo.]*|#|:)?\s*([A-Z]{1,5}[-\s]?\d{2,10}|\d{3,10})(?!\d)/i)
+      || text.match(/(?:^|\n)\s*(?:no|n[°º]|nro|n[uú]mero)\.?\s*[:#]?\s*([A-Z]{0,5}-?\d{3,10})(?!\d)/i);
     if (mN) numero = mN[1].replace(/\s+/g, "");
     const mF = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/) || text.match(/\b(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/);
     if (mF){
@@ -558,11 +602,22 @@
       if (+m > 12 && +d <= 12) [d, m] = [m, d];
       if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) fecha = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     }
-    const top = lines.slice(0, 8).map(l => l.trim()).filter(Boolean);
-    const company = top.find(l => /\b(s\.?\s?a\.?\s?s|ltda|s\.?\s?a\b|distribuidora|distribuciones|comercializadora|mayorista|dist\.)/i.test(l));
-    proveedor = company || top.find(l => (l.match(/\p{L}/gu) || []).length >= 6 && !SKIP.test(norm(l)) && !/factura/i.test(l)) || null;
-    if (proveedor) proveedor = proveedor.replace(/\s{2,}/g, " ").replace(/^[^\p{L}]+/u, "").slice(0, 60);
-    return {proveedor, numero, fecha};
+    // Encabezado = lo que va antes de los datos del cliente (ahí está el NIT del proveedor, no el del cliente)
+    let cut = lines.findIndex((l, i) => i > 0 && /^\s*(?:cliente|se[ñn]or(?:es)?|sr\.?|adquir\w*|comprador|nombre)\b/i.test(l));
+    if (cut < 0 || cut > 14) cut = Math.min(lines.length, 10);
+    const head = lines.slice(0, cut);
+    const mNit = head.join("\n").match(/\bn\.?\s?i\.?\s?t\.?\s*(?:\/?\s*c\.?\s?c\.?)?\s*[:.#]?\s*(\d[\d.,\s]{4,13}\d(?:\s?-\s?\d)?)/i);
+    if (mNit) nit = nitKey(mNit[1].replace(/\s+/g, "")) || null;
+    const known = supplierName(head.join(" ")) || supplierName(lines.slice(0, 14).join(" "));
+    const COMPANY = /\b(s\.?\s?a\.?\s?,?\s?s\b|ltda|s\.\s?a\.|e\.\s?u\.|&\s?c[ií]a|distribuidora|distribuciones|comercializadora|comercial|mayorista|dist\.|sider[uú]rgica|industrias|importadora|inversiones|almac[eé]n|dep[oó]sito|ferreter[ií]a|ferre\w+|grupo)/i;
+    const cands = head.slice(0, 9).map(l => l.trim()).filter(Boolean)
+      .filter(l => !/^\s*(?:nombre|cliente|se[ñn]or)/i.test(l))
+      .map(l => ({l, c: cleanSupplier(l)})).filter(x => x.c && !SKIP.test(norm(x.c)));
+    // Sin palabra de empresa (SAS, Ltda, Distribuidora…) no adivinamos: en hojas escaneadas casi siempre es basura del
+    // logo, y el POS crearía un proveedor falso. Si queda vacío, el usuario lo escribe una vez y la app lo recuerda por NIT.
+    const best = cands.find(x => COMPANY.test(x.c));
+    proveedor = known || (best ? best.c : null);
+    return {proveedor, numero, fecha, nit};
   }
 
   // Si la factura trae el IVA solo al final (Würth, Ferroplast…), lo deducimos: IVA ÷ suma de productos ≈ 19 %
@@ -665,6 +720,6 @@
     return {...parseHeader(lines), items};
   }
 
-  const api = {parseInvoice, parseLine, parseNum, readNumber, parseHeader, findBrand, pickCategory, cleanName, prettyName, fixWord};
+  const api = {parseInvoice, parseLine, parseNum, readNumber, parseHeader, supplierName, nitKey, findBrand, pickCategory, cleanName, prettyName, fixWord};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.InvoiceParser = api;
 })(typeof self !== "undefined" ? self : this);

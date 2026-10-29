@@ -206,6 +206,9 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
         <div class="f"><span class="lbl">IVA</span>
           <label class="check" for="ivaChk"><input type="checkbox" id="ivaChk"> Sumar el IVA de la factura al costo</label></div>
       </div>
+      <div class="f"><label for="xlsFmt">El botón Excel descarga</label>
+        <select id="xlsFmt"><option value="pos">Plantilla para importar al POS</option><option value="resumen">Resumen con ganancias y totales</option></select>
+        <p class="hint">La plantilla del POS se sube en el POS en Productos → Importar Excel.</p></div>
       <span class="saved" id="savedNote" hidden>Ajustes guardados en este celular</span>
 
       <hr>
@@ -247,7 +250,7 @@ hr{border:0;border-top:1px solid var(--line);margin:0}
       <hr>
       <div class="f">
         <span class="lbl">Pasar ajustes al otro celular</span>
-        <p class="hint">Copia este código y pégalo en PrecioListo del otro celular (por ejemplo, enviándotelo por WhatsApp). Pasa categorías, porcentajes, la dirección del PC y la clave.</p>
+        <p class="hint">Copia este código y pégalo en PrecioListo del otro celular (por ejemplo, enviándotelo por WhatsApp). Pasa categorías, porcentajes, los nombres de proveedores, la dirección del PC y la clave.</p>
         <div class="inline"><button id="exportCfg" class="small-btn">Copiar código</button><button id="importOpen" class="small-btn ghost">Pegar código</button></div>
         <div id="importBox" class="f" hidden>
           <textarea id="importTxt" aria-label="Código de ajustes" placeholder="Pega aquí el código"></textarea>
@@ -285,7 +288,7 @@ const store = {
   set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } }
 };
 const DEFAULT_SETTINGS = {
-  negocio:"", modo:"costo", redondeo:100, incluirIva:true, modelo:"auto", metodo:"auto", pcUrl:"", pcModel:"",
+  negocio:"", modo:"costo", redondeo:100, incluirIva:true, xlsFmt:"pos", modelo:"auto", metodo:"auto", pcUrl:"", pcModel:"",
   categorias:[
     {nombre:"Tubería y PVC",margen:30},{nombre:"Tornillería y fijaciones",margen:30},{nombre:"Eléctricos",margen:30},
     {nombre:"Pinturas",margen:30},{nombre:"Herramientas",margen:30},{nombre:"Cemento y obra",margen:30},
@@ -387,6 +390,21 @@ $("#addItem").onclick = () => {
   renderItems(); $(`#p${uid-1}`).focus();
 };
 [["prov","proveedor"],["nfac","numero"],["ffac","fecha"]].forEach(([id,k]) => $("#"+id).addEventListener("input", e => { inv[k] = e.target.value; }));
+// El nombre del proveedor que el usuario escribe se recuerda por NIT: la próxima factura de ese NIT ya sale bien
+// (importa para el POS, que crea un proveedor nuevo por cada nombre distinto).
+const provMem = store.get("pl_prov") || {};
+$("#prov").addEventListener("change", () => {
+  if (!inv.nit) return;
+  const v = inv.proveedor.trim();
+  if (v) provMem[inv.nit] = v; else delete provMem[inv.nit];
+  store.set("pl_prov", provMem);
+});
+function resolveProveedor(raw, nitRaw){
+  const P = window.InvoiceParser;
+  const nit = P?.nitKey ? P.nitKey(String(nitRaw || "").replace(/[^\d.,-]/g, "")) : "";
+  const name = (nit && provMem[nit]) || (P?.supplierName && P.supplierName(raw)) || String(raw || "").trim();
+  return {proveedor: name, nit};
+}
 function renderInv(){ $("#prov").value = inv.proveedor||""; $("#nfac").value = inv.numero||""; $("#ffac").value = inv.fecha||""; }
 
 /* ---------- ajustes ---------- */
@@ -403,6 +421,8 @@ function renderSettings(){
     : "Costo $10.000 con 25% → vendes a unos $13.333 (la ganancia es el 25% del precio de venta).";
   $("#redondeo").value = String(settings.redondeo);
   $("#ivaChk").checked = !!settings.incluirIva;
+  $("#xlsFmt").value = settings.xlsFmt === "resumen" ? "resumen" : "pos";
+  $("#xlsBtn").textContent = settings.xlsFmt === "resumen" ? "Excel" : "Excel POS";
   $("#keyInput").value = apiKey;
   $("#metodoSel").value = settings.metodo;
   $("#pcUrl").value = settings.pcUrl || "";
@@ -436,6 +456,7 @@ $("#modeCosto").onclick = () => { settings.modo = "costo"; renderSettings(); ren
 $("#modeVenta").onclick = () => { settings.modo = "venta"; renderSettings(); renderItems(); saveSettings(); };
 $("#redondeo").onchange = e => { settings.redondeo = Number(e.target.value); renderItems(); saveSettings(); };
 $("#ivaChk").onchange = e => { settings.incluirIva = e.target.checked; renderItems(); saveSettings(); };
+$("#xlsFmt").onchange = e => { settings.xlsFmt = e.target.value; renderSettings(); saveSettings(); };
 $("#modelSel").onchange = e => { settings.modelo = e.target.value; saveSettings(); };
 
 /* ---------- clave y modelos de Gemini ---------- */
@@ -558,9 +579,10 @@ function buildPrompt(n){
   const cats = settings.categorias.map(c => c.nombre);
   return `Las imágenes son ${n > 1 ? "partes o páginas de UNA misma" : "una"} factura de compra de un distribuidor a una ferretería en Colombia.
 Extrae TODOS los productos que aparecen. Responde SOLO con un objeto JSON con esta forma exacta:
-{"proveedor": string|null, "numero": string|null, "fecha": "AAAA-MM-DD"|null,
+{"proveedor": string|null, "nit": string|null, "numero": string|null, "fecha": "AAAA-MM-DD"|null,
  "items": [{"producto": string, "marca": string|null, "cantidad": number, "costo_unitario": number, "iva_pct": number, "categoria": string}]}
 Reglas:
+- "proveedor" y "nit": el nombre y el NIT de quien VENDE (arriba, junto al logo), no los del cliente.
 - "producto": nombre claro con medida/presentación, con las abreviaturas escritas completas (ej. "TUBO PVC SAN 2" 6M" → "Tubo PVC sanitario 2" x 6 m", "BCO" → "blanco", "GL" → "galón"). No dejes el código del producto en el nombre.
 - "marca": la marca del fabricante si aparece o es evidente (Pavco, Gerfor, Argos, Pintuco, Truper, Stanley…); si no, null. Una línea de producto como "Viniltex" o un tipo como "drywall" no es la marca.
 - "cantidad": unidades compradas. Si viene por caja/paca y se indica cuántas unidades trae, usa unidades sueltas y ajusta el costo por unidad.
@@ -926,7 +948,7 @@ $("#readBtn").onclick = async () => {
     };
     const list = Array.isArray(data?.items) ? data.items : [];
     if (!list.length) { const e = new Error(""); e.code = via === "celular" ? "empty_phone" : "empty"; throw e; }
-    inv = {proveedor: data.proveedor || "", numero: data.numero || "", fecha: data.fecha || ""};
+    inv = {...resolveProveedor(data.proveedor, data.nit), numero: data.numero || "", fecha: data.fecha || ""};
     items = list.map(x => ({
       id: uid++, producto: String(x.producto || ""), marca: x.marca ? String(x.marca) : "",
       cantidad: num(x.cantidad) || 1, costo: Math.round(num(x.costo_unitario) * 100) / 100, iva: num(x.iva_pct),
@@ -1025,7 +1047,71 @@ $("#pdfBtn").onclick = () => {
 $("#xlsBtn").onclick = () => {
   const r = rows(); if (!r.length) return toast("No hay productos para exportar");
   if (!window.XLSX) return toast("Cargando… intenta de nuevo en un segundo");
-  const header = ["Producto","Marca","Categoría","Cantidad","Costo unitario","IVA %","Costo con IVA","Ganancia %","Precio venta","Ganancia por unidad","Total costo","Total venta"];
+  if (settings.xlsFmt === "resumen") xlsResumen(r); else xlsPos(r);
+};
+const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Plantilla "plantilla_productos.xlsx" del sistema POS: hoja "Productos", títulos exactos en la fila 1, un producto por fila.
+const POS_COLS = [
+  ["Nombre *", 40, 'Obligatorio. Ej: Tubo PVC presión 1/2" x 6 m'],
+  ["Código de barras", 18, "Opcional. Si ya existe un producto con este código, se considera el mismo producto."],
+  ["SKU (código interno)", 18, "Opcional. Si lo dejas vacío se asigna uno automático (PROD-00001…)."],
+  ["Categoría", 20, "Opcional. Si no existe, se crea."],
+  ["Marca", 18, "Opcional. Si no existe, se crea."],
+  ["Proveedor", 22, "Opcional. Si no existe, se crea."],
+  ["Unidad", 12, "unidad, metro, kilo, litro, galon, caja, bolsa, par, rollo… (por defecto: unidad)"],
+  ["Costo", 12, "Precio de compra por unidad."],
+  ["Precio de venta *", 16, "Obligatorio. Con IVA incluido."],
+  ["IVA %", 8, "0, 5 o 19. Si lo dejas vacío se usa el IVA por defecto de Configuración."],
+  ["Stock inicial", 12, "Cantidad que hay hoy. Solo se usa para productos nuevos."],
+  ["Stock mínimo", 12, "Para la alerta de stock bajo."],
+  ["Ubicación", 14, "Ej: Estante 3"],
+  ["Descripción", 30, "Opcional."],
+];
+const POS_HELP = [
+  "CÓMO LLENAR ESTA PLANTILLA", "",
+  '1. Escribe un producto por fila en la hoja "Productos", desde la fila 2. No cambies los títulos de la fila 1.',
+  "2. Solo son obligatorios el Nombre y el Precio de venta.",
+  "3. Categoría, marca y proveedor: elige de la lista o escribe uno nuevo (se crea solo).",
+  "4. Si un producto ya existe (mismo código de barras o SKU), no se duplica: puedes elegir actualizar sus datos al importar.",
+  '5. El stock inicial solo se carga en productos nuevos. Para sumar mercancía a productos existentes usa "Entrada por código" o "Compras".',
+  "6. Los precios van sin puntos ni signos: 12500, no $12.500.",
+  "7. Guarda el archivo y súbelo en Productos → Importar Excel. Primero verás una vista previa con los errores, antes de guardar nada.",
+];
+const POS_UNITS = ["unidad","par","caja","bolsa","paquete","rollo","metro","centimetro","kilo","gramo","libra","litro","galon","mililitro","metro2","metro3"];
+const posUnit = name => /\(metro\)|\bx\s*metro\b|\bpor\s+metro\b|\bmetro\s+lineal\b/i.test(name) ? "metro" : "unidad";
+function xlsPos(r){
+  const prov = (inv.proveedor || "").trim();
+  const aoa = [POS_COLS.map(c => c[0]), ...r.map(x => {
+    const iva = Number(x.iva) || 0;
+    return [
+      x.producto.trim(), "", "", x.categoria || "", (x.marca || "").trim(), prov, posUnit(x.producto),
+      Math.round(x.base), Math.round(x.precio),
+      // IVA 0 en la factura de compra casi siempre es "no se leyó" o proveedor sin IVA: vacío = el IVA por defecto del POS
+      iva === 5 || iva === 19 ? iva : "",
+      Number(x.cantidad) || "", "", "", ""
+    ];
+  })];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = POS_COLS.map(c => ({wch: c[1]}));
+  POS_COLS.forEach((c, i) => { const cell = ws[XLSX.utils.encode_cell({r:0, c:i})]; cell.c = [{a:"POS", t:c[2]}]; cell.c.hidden = true; });
+  const help = XLSX.utils.aoa_to_sheet(POS_HELP.map(t => [t])); help["!cols"] = [{wch:110}];
+  // Hoja "Listas" con la misma forma que la plantilla (solo con lo de esta factura; el POS crea lo que no exista)
+  const uniq = a => [...new Set(a.map(s => String(s || "").trim()).filter(Boolean))];
+  const L = [uniq(settings.categorias.map(c => c.nombre)), uniq(r.map(x => x.marca)), uniq([prov]), POS_UNITS, ["0","5","19"]];
+  const listas = XLSX.utils.aoa_to_sheet([["Categorías existentes","Marcas existentes","Proveedores existentes","Unidades","IVA"],
+    ...Array.from({length: Math.max(...L.map(c => c.length))}, (_, i) => L.map(c => c[i] ?? ""))]);
+  listas["!cols"] = [{wch:26},{wch:18},{wch:22},{wch:12},{wch:6}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Productos");
+  XLSX.utils.book_append_sheet(wb, listas, "Listas");
+  XLSX.utils.book_append_sheet(wb, help, "Instrucciones");
+  const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+  offer(new Blob([buf], {type: XLSX_TYPE}), fileBase().replace(/^precios_/, "productos_pos_") + ".xlsx");
+}
+
+function xlsResumen(r){
+  const header =["Producto","Marca","Categoría","Cantidad","Costo unitario","IVA %","Costo con IVA","Ganancia %","Precio venta","Ganancia por unidad","Total costo","Total venta"];
   const aoa = [
     [settings.negocio || "Lista de precios"],
     [`Proveedor: ${inv.proveedor||"—"}`, "", `Factura: ${inv.numero||"—"}`, "", `Fecha: ${inv.fecha||"—"}`],
@@ -1043,14 +1129,14 @@ $("#xlsBtn").onclick = () => {
   for (let R = first-1; R <= last+1; R++) for (const C of [4,6,8,9,10,11]) { const a = XLSX.utils.encode_cell({r:R,c:C}); if (ws[a]) ws[a].z = money; }
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Precios");
   const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
-  offer(new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fileBase() + ".xlsx");
-};
+  offer(new Blob([buf], {type: XLSX_TYPE}), fileBase() + ".xlsx");
+}
 
 /* ---------- pasar ajustes entre celulares ---------- */
 const b64e = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 const b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0)));
 $("#exportCfg").onclick = async () => {
-  const code = "PL1:" + b64e(JSON.stringify({s: settings, k: apiKey}));
+  const code = "PL1:" + b64e(JSON.stringify({s: settings, k: apiKey, p: provMem}));
   try { await navigator.clipboard.writeText(code); toast("Código copiado. Pégalo en el otro celular."); }
   catch(e){ $("#importBox").hidden = false; $("#importTxt").value = code; $("#importTxt").select(); toast("Copia el código seleccionado"); }
 };
@@ -1063,6 +1149,7 @@ $("#importBtn").onclick = () => {
     settings = {...structuredClone(DEFAULT_SETTINGS), ...o.s};
     store.set("pl_settings", settings);
     if (o.k) setKey(o.k);
+    if (o.p && typeof o.p === "object") { Object.assign(provMem, o.p); store.set("pl_prov", provMem); }
     renderSettings(); renderItems(); $("#importBox").hidden = true; toast("Ajustes aplicados");
   } catch(e){ toast("Ese código no es válido. Cópialo completo otra vez."); }
 };
